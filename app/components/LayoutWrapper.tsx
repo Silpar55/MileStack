@@ -10,7 +10,7 @@ interface LayoutWrapperProps {
 }
 
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
-  const { user, logout, isAuthenticated, isLoading } = useAuth();
+  const { user, logout, isAuthenticated, isLoading, accessToken } = useAuth();
   const [points, setPoints] = useState(0);
   const pathname = usePathname();
 
@@ -36,16 +36,31 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
     if (isAuthenticated && user) {
       fetchUserPoints();
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, accessToken]);
 
   const fetchUserPoints = async () => {
     try {
-      // For NextAuth users, we don't need to pass a token
-      // The API should handle authentication via NextAuth session
-      const response = await fetch("/api/points/balance");
+      // Prepare headers based on authentication method
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+
+      // If we have a JWT token, use it; otherwise rely on NextAuth session
+      if (accessToken && accessToken !== "nextauth-session") {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      const response = await fetch("/api/points/balance", {
+        method: "GET",
+        headers,
+        credentials: "include", // Include cookies for NextAuth session
+      });
+
       const data = await response.json();
       if (data.success) {
         setPoints(data.data.currentBalance);
+      } else {
+        console.error("Failed to fetch points:", data.error);
       }
     } catch (error) {
       console.error("Error fetching points:", error);

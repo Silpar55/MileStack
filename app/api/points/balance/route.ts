@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  withNextAuth,
-  withCORS,
-  withSecurityHeaders,
-} from "@/shared/middleware";
+import { withAPIMiddleware } from "@/shared/middleware";
 import { pointsService } from "@/shared/points-service";
 
 async function handler(
@@ -37,4 +33,8 @@ async function handler(
   }
 }
 
-export const GET = withSecurityHeaders(withCORS(withNextAuth(handler)));
+export const GET = withAPIMiddleware(handler, {
+  requireAuth: true,
+  cors: true,
+  security: true,
+});
