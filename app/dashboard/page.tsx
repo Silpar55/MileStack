@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Dashboard } from "@/components/Dashboard";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
-export default function DashboardPage() {
+function DashboardPageContent() {
   const router = useRouter();
 
   // Mock user data
@@ -92,5 +93,13 @@ export default function DashboardPage() {
       onContinueAssignment={() => router.push("/assignments")}
       onRequestAssistance={() => router.push("/ai/ask")}
     />
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <ProtectedRoute>
+      <DashboardPageContent />
+    </ProtectedRoute>
   );
 }

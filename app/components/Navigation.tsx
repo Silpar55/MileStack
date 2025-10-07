@@ -30,6 +30,7 @@ interface NavigationProps {
   points: number;
   userName: string;
   userEmail: string;
+  isAuthenticated?: boolean;
 }
 
 export function Navigation({
@@ -37,6 +38,7 @@ export function Navigation({
   points,
   userName,
   userEmail,
+  isAuthenticated = true,
 }: NavigationProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -114,74 +116,96 @@ export function Navigation({
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="flex items-center px-4 py-2 rounded-lg bg-gradient-to-r from-primary/10 to-blue-100">
-              <Star className="w-5 h-5 text-[#F59E0B] mr-2" />
-              <span
-                className="font-bold text-foreground"
-                data-testid="text-points"
-              >
-                {points}
-              </span>
-              <span className="ml-1 text-muted-foreground">pts</span>
-            </div>
+            {isAuthenticated && (
+              <div className="flex items-center px-4 py-2 rounded-lg bg-gradient-to-r from-primary/10 to-blue-100">
+                <Star className="w-5 h-5 text-[#F59E0B] mr-2" />
+                <span
+                  className="font-bold text-foreground"
+                  data-testid="text-points"
+                >
+                  {points}
+                </span>
+                <span className="ml-1 text-muted-foreground">pts</span>
+              </div>
+            )}
 
-            <div className="relative">
-              <button
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
-                data-testid="button-profile-dropdown"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-blue-400 flex items-center justify-center text-white font-medium">
-                  {userName.charAt(0)}
-                </div>
-              </button>
-
-              {profileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-popover rounded-lg shadow-lg py-2 border">
-                  <div className="px-4 py-2 border-b">
-                    <p
-                      className="text-sm font-medium"
-                      data-testid="text-profile-name"
-                    >
-                      {userName}
-                    </p>
-                    <p
-                      className="text-xs text-muted-foreground"
-                      data-testid="text-profile-email"
-                    >
-                      {userEmail}
-                    </p>
+            {isAuthenticated ? (
+              <div className="relative">
+                <button
+                  onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                  className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
+                  data-testid="button-profile-dropdown"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-blue-400 flex items-center justify-center text-white font-medium">
+                    {userName.charAt(0)}
                   </div>
-                  {navigationItems.slice(5).map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          handleNavigation(item.path);
-                          setProfileDropdownOpen(false);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm hover-elevate flex items-center"
-                        data-testid={`dropdown-${item.id}`}
+                </button>
+
+                {profileDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-popover rounded-lg shadow-lg py-2 border">
+                    <div className="px-4 py-2 border-b">
+                      <p
+                        className="text-sm font-medium"
+                        data-testid="text-profile-name"
                       >
-                        <Icon className="w-4 h-4 mr-2" />
-                        {item.label}
+                        {userName}
+                      </p>
+                      <p
+                        className="text-xs text-muted-foreground"
+                        data-testid="text-profile-email"
+                      >
+                        {userEmail}
+                      </p>
+                    </div>
+                    {navigationItems.slice(5).map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            handleNavigation(item.path);
+                            setProfileDropdownOpen(false);
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm hover-elevate flex items-center"
+                          data-testid={`dropdown-${item.id}`}
+                        >
+                          <Icon className="w-4 h-4 mr-2" />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                    <div className="border-t mt-2 pt-2">
+                      <button
+                        onClick={onLogout}
+                        className="w-full text-left px-4 py-2 text-sm text-destructive hover-elevate flex items-center"
+                        data-testid="button-logout"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Sign Out
                       </button>
-                    );
-                  })}
-                  <div className="border-t mt-2 pt-2">
-                    <button
-                      onClick={onLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-destructive hover-elevate flex items-center"
-                      data-testid="button-logout"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Sign Out
-                    </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleNavigation("/login")}
+                  data-testid="button-login"
+                >
+                  Sign In
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleNavigation("/signup")}
+                  data-testid="button-signup"
+                >
+                  Sign Up
+                </Button>
+              </div>
+            )}
 
             <button
               onClick={() => setShowMobileMenu(!showMobileMenu)}

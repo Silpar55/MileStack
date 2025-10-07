@@ -21,8 +21,9 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState({
     name: "John Doe",
@@ -494,5 +495,13 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <ProtectedRoute>
+      <ProfilePageContent />
+    </ProtectedRoute>
   );
 }
