@@ -83,6 +83,28 @@ interface SignupData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper function to set cookies
+const setCookie = (name: string, value: string, maxAge: number) => {
+  if (typeof document !== "undefined") {
+    const cookieString = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax`;
+    document.cookie = cookieString;
+    console.log("Setting cookie:", {
+      name,
+      value: value.substring(0, 20) + "...",
+      maxAge,
+      cookieString,
+    });
+  }
+};
+
+// Helper function to clear cookies
+const clearCookie = (name: string) => {
+  if (typeof document !== "undefined") {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+    console.log("Clearing cookie:", name);
+  }
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const [user, setUser] = useState<User | null>(null);
@@ -126,6 +148,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessToken(storedAccessToken);
             setRefreshTokenValue(storedRefreshToken);
             setUser(JSON.parse(storedUser));
+
+            // Also store in cookies for middleware access
+            setCookie("accessToken", storedAccessToken, 15 * 60); // 15 minutes
+            setCookie("refreshToken", storedRefreshToken, 7 * 24 * 60 * 60); // 7 days
 
             // Verify token is still valid
             const response = await fetch("/api/auth/me", {
@@ -218,6 +244,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("refreshToken", result.refreshToken);
         localStorage.setItem("user", JSON.stringify(result.user));
 
+        // Also store in cookies for middleware access
+        setCookie("accessToken", result.accessToken, 15 * 60); // 15 minutes
+        setCookie("refreshToken", result.refreshToken, 7 * 24 * 60 * 60); // 7 days
+
         // Update context state
         setAccessToken(result.accessToken);
         setRefreshTokenValue(result.refreshToken);
@@ -302,6 +332,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("user");
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
+
+      // Clear cookies
+      clearCookie("accessToken");
+      clearCookie("refreshToken");
     }
   }, [refreshTokenValue, accessToken]);
 

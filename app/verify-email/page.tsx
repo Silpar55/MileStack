@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation";
 import { EmailVerificationScreen } from "@/components/auth/EmailVerificationScreen";
 import { useAuth } from "@/contexts/AuthContext";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+
+// Helper function to set cookies
+const setCookie = (name: string, value: string, maxAge: number) => {
+  if (typeof document !== "undefined") {
+    document.cookie = `${name}=${value}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  }
+};
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -63,6 +70,10 @@ export default function VerifyEmailPage() {
             localStorage.setItem("refreshToken", refreshTokenParam);
             localStorage.setItem("user", JSON.stringify(user));
 
+            // Also store in cookies for middleware access
+            setCookie("accessToken", accessToken, 15 * 60); // 15 minutes
+            setCookie("refreshToken", refreshTokenParam, 7 * 24 * 60 * 60); // 7 days
+
             // Update auth context
             setAccessToken(accessToken);
             setRefreshTokenValue(refreshTokenParam);
@@ -103,6 +114,10 @@ export default function VerifyEmailPage() {
             localStorage.setItem("accessToken", result.accessToken);
             localStorage.setItem("refreshToken", result.refreshToken);
             localStorage.setItem("user", JSON.stringify(result.user));
+
+            // Also store in cookies for middleware access
+            setCookie("accessToken", result.accessToken, 15 * 60); // 15 minutes
+            setCookie("refreshToken", result.refreshToken, 7 * 24 * 60 * 60); // 7 days
 
             // Update auth context
             setAccessToken(result.accessToken);
