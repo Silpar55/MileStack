@@ -7,6 +7,11 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import {
+  useSession,
+  signIn as nextAuthSignIn,
+  signOut as nextAuthSignOut,
+} from "next-auth/react";
 
 interface User {
   id: string;
@@ -18,13 +23,25 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  accessToken: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (
     email: string,
     password: string
-  ) => Promise<{ success: boolean; error?: string }>;
-  signup: (data: SignupData) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    code?: string;
+    status?: number;
+    user?: User;
+  }>;
+  signup: (data: SignupData) => Promise<{
+    success: boolean;
+    error?: string;
+    code?: string;
+    status?: number;
+  }>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<boolean>;
   forgotPassword: (
@@ -34,9 +51,19 @@ interface AuthContextType {
     token: string,
     password: string
   ) => Promise<{ success: boolean; error?: string }>;
-  verifyEmail: (token: string) => Promise<{ success: boolean; error?: string }>;
+  verifyEmail: (token: string) => Promise<{
+    success: boolean;
+    error?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    user?: User;
+    message?: string;
+  }>;
   googleLogin: () => Promise<void>;
   githubLogin: () => Promise<void>;
+  setUser: (user: User | null) => void;
+  setAccessToken: (token: string | null) => void;
+  setRefreshTokenValue: (token: string | null) => void;
 }
 
 interface SignupData {
@@ -57,6 +84,7 @@ interface SignupData {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -66,38 +94,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuthenticated = !!user && !!accessToken;
 
-  // Initialize auth state from localStorage
+  // Initialize auth state from NextAuth session
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const storedAccessToken = localStorage.getItem("accessToken");
-        const storedRefreshToken = localStorage.getItem("refreshToken");
-        const storedUser = localStorage.getItem("user");
+        if (status === "loading") {
+          setIsLoading(true);
+          return;
+        }
 
-        if (storedAccessToken && storedRefreshToken && storedUser) {
-          setAccessToken(storedAccessToken);
-          setRefreshTokenValue(storedRefreshToken);
-          setUser(JSON.parse(storedUser));
+        if (session?.user) {
+          // Convert NextAuth session to our User format
+          const nextAuthUser: User = {
+            id: (session.user as any).id || "",
+            email: session.user.email || "",
+            firstName: (session.user as any).firstName || "",
+            lastName: (session.user as any).lastName || "",
+            isEmailVerified: (session.user as any).isEmailVerified || false,
+          };
 
-          // Verify token is still valid
-          const response = await fetch("/api/auth/me", {
-            headers: {
-              Authorization: `Bearer ${storedAccessToken}`,
-            },
-          });
+          setUser(nextAuthUser);
+          setAccessToken("nextauth-session"); // Use NextAuth session as token
+          setRefreshTokenValue(null); // NextAuth handles refresh internally
+        } else {
+          // Check for existing localStorage tokens (for backward compatibility)
+          const storedAccessToken = localStorage.getItem("accessToken");
+          const storedRefreshToken = localStorage.getItem("refreshToken");
+          const storedUser = localStorage.getItem("user");
 
-          if (!response.ok) {
-            // Try to refresh token
-            const refreshed = await refreshToken();
-            if (!refreshed) {
-              // Clear invalid tokens
-              localStorage.removeItem("accessToken");
-              localStorage.removeItem("refreshToken");
-              localStorage.removeItem("user");
-              setAccessToken(null);
-              setRefreshTokenValue(null);
-              setUser(null);
+          if (storedAccessToken && storedRefreshToken && storedUser) {
+            setAccessToken(storedAccessToken);
+            setRefreshTokenValue(storedRefreshToken);
+            setUser(JSON.parse(storedUser));
+
+            // Verify token is still valid
+            const response = await fetch("/api/auth/me", {
+              headers: {
+                Authorization: `Bearer ${storedAccessToken}`,
+              },
+            });
+
+            if (!response.ok) {
+              // Try to refresh token
+              const refreshed = await refreshToken();
+              if (!refreshed) {
+                // Clear invalid tokens
+                localStorage.removeItem("accessToken");
+                localStorage.removeItem("refreshToken");
+                localStorage.removeItem("user");
+                setAccessToken(null);
+                setRefreshTokenValue(null);
+                setUser(null);
+              }
             }
+          } else {
+            setUser(null);
+            setAccessToken(null);
+            setRefreshTokenValue(null);
           }
         }
       } catch (error) {
@@ -115,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initAuth();
-  }, []);
+  }, [session, status]);
 
   const refreshToken = useCallback(async (): Promise<boolean> => {
     if (!refreshTokenValue) return false;
@@ -148,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     try {
+      // Use direct API call instead of NextAuth for better error handling
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
@@ -156,18 +210,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const result = await response.json();
 
       if (response.ok) {
-        setUser(data.user);
-        setAccessToken(data.accessToken);
-        setRefreshTokenValue(data.refreshToken);
-        localStorage.setItem("user", JSON.stringify(data.user));
-        localStorage.setItem("accessToken", data.accessToken);
-        localStorage.setItem("refreshToken", data.refreshToken);
+        // Store tokens and user data
+        localStorage.setItem("accessToken", result.accessToken);
+        localStorage.setItem("refreshToken", result.refreshToken);
+        localStorage.setItem("user", JSON.stringify(result.user));
+
+        // Update context state
+        setAccessToken(result.accessToken);
+        setRefreshTokenValue(result.refreshToken);
+        setUser(result.user);
+
         return { success: true };
       } else {
-        return { success: false, error: data.error || "Login failed" };
+        // Handle specific error cases
+        if (response.status === 403 && result.code === "EMAIL_NOT_VERIFIED") {
+          return {
+            success: false,
+            error: "Please verify your email address before logging in",
+            code: "EMAIL_NOT_VERIFIED",
+            user: result.user,
+          };
+        }
+
+        return {
+          success: false,
+          error: result.error || "Login failed",
+          status: response.status,
+          code: result.code,
+        };
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -190,7 +263,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (response.ok) {
         return { success: true };
       } else {
-        return { success: false, error: result.error || "Signup failed" };
+        return {
+          success: false,
+          error: result.error || "Signup failed",
+          status: response.status,
+          code: result.code,
+        };
       }
     } catch (error) {
       console.error("Signup error:", error);
@@ -200,14 +278,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      if (refreshTokenValue) {
-        await fetch("/api/auth/logout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ refreshToken: refreshTokenValue }),
-        });
+      // Use NextAuth signOut if we have a NextAuth session
+      if (accessToken === "nextauth-session") {
+        await nextAuthSignOut({ callbackUrl: "/login" });
+      } else {
+        // Fallback to custom logout for existing sessions
+        if (refreshTokenValue) {
+          await fetch("/api/auth/logout", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ refreshToken: refreshTokenValue }),
+          });
+        }
       }
     } catch (error) {
       console.error("Logout error:", error);
@@ -219,7 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
     }
-  }, [refreshTokenValue]);
+  }, [refreshTokenValue, accessToken]);
 
   const forgotPassword = useCallback(async (email: string) => {
     try {
@@ -279,7 +363,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
 
       if (response.ok) {
-        return { success: true };
+        return {
+          success: true,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          user: data.user,
+          message: data.message,
+        };
       } else {
         return {
           success: false,
@@ -294,20 +384,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const googleLogin = useCallback(async () => {
     try {
-      const response = await fetch("/api/auth/oauth/google", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          redirect_uri: `${window.location.origin}/api/auth/oauth/google/callback`,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        window.location.href = data.authUrl;
-      }
+      await nextAuthSignIn("google", { callbackUrl: "/dashboard" });
     } catch (error) {
       console.error("Google login error:", error);
     }
@@ -315,20 +392,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const githubLogin = useCallback(async () => {
     try {
-      const response = await fetch("/api/auth/oauth/github", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          redirect_uri: `${window.location.origin}/api/auth/oauth/github/callback`,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        window.location.href = data.authUrl;
-      }
+      await nextAuthSignIn("github", { callbackUrl: "/dashboard" });
     } catch (error) {
       console.error("GitHub login error:", error);
     }
@@ -336,6 +400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextType = {
     user,
+    accessToken,
     isLoading,
     isAuthenticated,
     login,
@@ -347,6 +412,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     verifyEmail,
     googleLogin,
     githubLogin,
+    setUser,
+    setAccessToken,
+    setRefreshTokenValue,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

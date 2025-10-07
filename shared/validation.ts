@@ -1,173 +1,296 @@
-import { z } from "zod";
+// Professional validation utilities for forms
+
+export interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings?: string[];
+}
+
+export interface FieldValidation {
+  isValid: boolean;
+  error?: string;
+  warning?: string;
+}
 
 // Email validation
-export const emailSchema = z
-  .string()
-  .email("Invalid email format")
-  .min(1, "Email is required")
-  .max(255, "Email is too long");
+export const validateEmail = (email: string): FieldValidation => {
+  if (!email) {
+    return { isValid: false, error: "Email is required" };
+  }
 
-// Password validation with custom rules
-export const passwordSchema = z
-  .string()
-  .min(8, "Password must be at least 8 characters long")
-  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-  .regex(/\d/, "Password must contain at least one number")
-  .regex(
-    /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/,
-    "Password must contain at least one special character"
-  )
-  .max(128, "Password is too long");
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(email)) {
+    return { isValid: false, error: "Please enter a valid email address" };
+  }
+
+  // Check for common typos in email domains
+  const commonDomains = [
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "university.edu",
+  ];
+  const domain = email.split("@")[1]?.toLowerCase();
+
+  if (domain && !commonDomains.includes(domain)) {
+    const similarDomain = commonDomains.find(
+      (d) =>
+        d.includes(domain.substring(0, 3)) || domain.includes(d.substring(0, 3))
+    );
+    if (similarDomain) {
+      return {
+        isValid: true,
+        warning: `Did you mean ${email.split("@")[0]}@${similarDomain}?`,
+      };
+    }
+  }
+
+  return { isValid: true };
+};
+
+// Password validation with detailed feedback
+export const validatePassword = (password: string): FieldValidation => {
+  if (!password) {
+    return { isValid: false, error: "Password is required" };
+  }
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Length check
+  if (password.length < 8) {
+    errors.push("at least 8 characters");
+  } else if (password.length < 12) {
+    warnings.push("Consider using 12+ characters for better security");
+  }
+
+  // Character type checks
+  if (!/[A-Z]/.test(password)) {
+    errors.push("one uppercase letter");
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push("one lowercase letter");
+  }
+  if (!/\d/.test(password)) {
+    errors.push("one number");
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    errors.push("one special character");
+  }
+
+  // Common password checks
+  const commonPasswords = [
+    "password",
+    "123456",
+    "qwerty",
+    "abc123",
+    "password123",
+  ];
+  if (
+    commonPasswords.some((common) => password.toLowerCase().includes(common))
+  ) {
+    warnings.push("Avoid common passwords for better security");
+  }
+
+  // Sequential characters check
+  if (/(.)\1{2,}/.test(password)) {
+    warnings.push("Avoid repeating characters");
+  }
+
+  if (errors.length > 0) {
+    return {
+      isValid: false,
+      error: `Password must contain ${errors.join(", ")}`,
+    };
+  }
+
+  if (warnings.length > 0) {
+    return {
+      isValid: true,
+      warning: warnings.join(". "),
+    };
+  }
+
+  return { isValid: true };
+};
 
 // Name validation
-export const nameSchema = z
-  .string()
-  .min(1, "Name is required")
-  .max(100, "Name is too long")
-  .regex(/^[a-zA-Z\s'-]+$/, "Name contains invalid characters");
+export const validateName = (
+  name: string,
+  fieldName: string = "Name"
+): FieldValidation => {
+  if (!name) {
+    return { isValid: false, error: `${fieldName} is required` };
+  }
 
-// Signup validation
-export const signupSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  firstName: nameSchema,
-  lastName: nameSchema,
-  termsAccepted: z
-    .boolean()
-    .refine((val) => val === true, "You must accept the terms and conditions"),
-  privacyPolicyAccepted: z
-    .boolean()
-    .refine((val) => val === true, "You must accept the privacy policy"),
-  gdprConsent: z
-    .object({
-      marketing: z.boolean().optional(),
-      analytics: z.boolean().optional(),
-      personalization: z.boolean().optional(),
-    })
-    .optional(),
-  ferpaConsent: z.boolean().optional(),
-});
+  if (name.trim().length < 2) {
+    return {
+      isValid: false,
+      error: `${fieldName} must be at least 2 characters`,
+    };
+  }
 
-// Login validation
-export const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(1, "Password is required"),
-});
+  if (name.length > 50) {
+    return {
+      isValid: false,
+      error: `${fieldName} must be less than 50 characters`,
+    };
+  }
 
-// Email verification validation
-export const emailVerificationSchema = z.object({
-  token: z.string().min(1, "Verification token is required"),
-});
+  // Check for valid characters (letters, spaces, hyphens, apostrophes)
+  if (!/^[a-zA-Z\s\-']+$/.test(name)) {
+    return {
+      isValid: false,
+      error: `${fieldName} can only contain letters, spaces, hyphens, and apostrophes`,
+    };
+  }
 
-// Forgot password validation
-export const forgotPasswordSchema = z.object({
-  email: emailSchema,
-});
+  // Check for multiple consecutive spaces
+  if (/\s{2,}/.test(name)) {
+    return {
+      isValid: false,
+      error: `${fieldName} cannot contain multiple consecutive spaces`,
+    };
+  }
 
-// Reset password validation
-export const resetPasswordSchema = z.object({
-  token: z.string().min(1, "Reset token is required"),
-  password: passwordSchema,
-});
+  return { isValid: true };
+};
 
-// Refresh token validation
-export const refreshTokenSchema = z.object({
-  refreshToken: z.string().min(1, "Refresh token is required"),
-});
+// Terms and conditions validation
+export const validateTerms = (
+  termsAccepted: boolean,
+  privacyAccepted: boolean
+): FieldValidation => {
+  if (!termsAccepted) {
+    return { isValid: false, error: "You must accept the Terms of Service" };
+  }
+  if (!privacyAccepted) {
+    return { isValid: false, error: "You must accept the Privacy Policy" };
+  }
+  return { isValid: true };
+};
 
-// OAuth callback validation
-export const oauthCallbackSchema = z.object({
-  code: z.string().min(1, "Authorization code is required"),
-  state: z.string().optional(),
-});
+// Complete signup form validation
+export interface SignupFormData {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  termsAccepted: boolean;
+  privacyPolicyAccepted: boolean;
+}
 
-// Profile update validation
-export const profileUpdateSchema = z.object({
-  firstName: nameSchema.optional(),
-  lastName: nameSchema.optional(),
-  profileData: z.record(z.any()).optional(),
-});
+export const validateSignupForm = (data: SignupFormData): ValidationResult => {
+  const errors: string[] = [];
+  const warnings: string[] = [];
 
-// Consent update validation
-export const consentUpdateSchema = z.object({
-  gdprConsent: z
-    .object({
-      marketing: z.boolean().optional(),
-      analytics: z.boolean().optional(),
-      personalization: z.boolean().optional(),
-    })
-    .optional(),
-  ferpaConsent: z.boolean().optional(),
-});
+  // Validate email
+  const emailValidation = validateEmail(data.email);
+  if (!emailValidation.isValid) {
+    errors.push(emailValidation.error!);
+  } else if (emailValidation.warning) {
+    warnings.push(emailValidation.warning);
+  }
 
-// Password change validation
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: passwordSchema,
-});
+  // Validate password
+  const passwordValidation = validatePassword(data.password);
+  if (!passwordValidation.isValid) {
+    errors.push(passwordValidation.error!);
+  } else if (passwordValidation.warning) {
+    warnings.push(passwordValidation.warning);
+  }
 
-// Session management validation
-export const sessionManagementSchema = z.object({
-  sessionId: z.string().uuid("Invalid session ID"),
-});
+  // Validate names
+  const firstNameValidation = validateName(data.firstName, "First name");
+  if (!firstNameValidation.isValid) {
+    errors.push(firstNameValidation.error!);
+  }
 
-// Rate limit validation
-export const rateLimitSchema = z.object({
-  identifier: z.string().min(1, "Identifier is required"),
-  action: z.enum(["login", "signup", "password_reset", "email_verification"]),
-});
+  const lastNameValidation = validateName(data.lastName, "Last name");
+  if (!lastNameValidation.isValid) {
+    errors.push(lastNameValidation.error!);
+  }
 
-// Audit log validation
-export const auditLogSchema = z.object({
-  action: z.string().min(1, "Action is required"),
-  resource: z.string().min(1, "Resource is required"),
-  resourceId: z.string().uuid("Invalid resource ID").optional(),
-  metadata: z.record(z.any()).optional(),
-});
+  // Validate terms
+  const termsValidation = validateTerms(
+    data.termsAccepted,
+    data.privacyPolicyAccepted
+  );
+  if (!termsValidation.isValid) {
+    errors.push(termsValidation.error!);
+  }
 
-// IP address validation
-export const ipAddressSchema = z.string().ip("Invalid IP address");
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings: warnings.length > 0 ? warnings : undefined,
+  };
+};
 
-// User agent validation
-export const userAgentSchema = z.string().max(500, "User agent is too long");
+// Login form validation
+export interface LoginFormData {
+  email: string;
+  password: string;
+}
 
-// Token validation
-export const tokenSchema = z.string().min(1, "Token is required");
+export const validateLoginForm = (data: LoginFormData): ValidationResult => {
+  const errors: string[] = [];
 
-// Pagination validation
-export const paginationSchema = z.object({
-  page: z.number().int().min(1, "Page must be at least 1").default(1),
-  limit: z
-    .number()
-    .int()
-    .min(1, "Limit must be at least 1")
-    .max(100, "Limit cannot exceed 100")
-    .default(20),
-});
+  // Validate email
+  const emailValidation = validateEmail(data.email);
+  if (!emailValidation.isValid) {
+    errors.push(emailValidation.error!);
+  }
 
-// Search validation
-export const searchSchema = z.object({
-  query: z
-    .string()
-    .min(1, "Search query is required")
-    .max(100, "Search query is too long"),
-  ...paginationSchema.shape,
-});
+  // Validate password (basic check for login)
+  if (!data.password) {
+    errors.push("Password is required");
+  }
 
-// Export types
-export type SignupInput = z.infer<typeof signupSchema>;
-export type LoginInput = z.infer<typeof loginSchema>;
-export type EmailVerificationInput = z.infer<typeof emailVerificationSchema>;
-export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
-export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
-export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
-export type OAuthCallbackInput = z.infer<typeof oauthCallbackSchema>;
-export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
-export type ConsentUpdateInput = z.infer<typeof consentUpdateSchema>;
-export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
-export type SessionManagementInput = z.infer<typeof sessionManagementSchema>;
-export type RateLimitInput = z.infer<typeof rateLimitSchema>;
-export type AuditLogInput = z.infer<typeof auditLogSchema>;
-export type PaginationInput = z.infer<typeof paginationSchema>;
-export type SearchInput = z.infer<typeof searchSchema>;
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+};
+
+// Real-time validation helpers
+export const getPasswordStrength = (
+  password: string
+): {
+  score: number;
+  label: string;
+  color: string;
+} => {
+  let score = 0;
+
+  if (password.length >= 8) score += 1;
+  if (password.length >= 12) score += 1;
+  if (/[A-Z]/.test(password)) score += 1;
+  if (/[a-z]/.test(password)) score += 1;
+  if (/\d/.test(password)) score += 1;
+  if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) score += 1;
+  if (password.length >= 16) score += 1;
+
+  if (score <= 2) {
+    return { score, label: "Weak", color: "text-red-500" };
+  } else if (score <= 4) {
+    return { score, label: "Fair", color: "text-yellow-500" };
+  } else if (score <= 6) {
+    return { score, label: "Good", color: "text-blue-500" };
+  } else {
+    return { score, label: "Strong", color: "text-green-500" };
+  }
+};
+
+// Debounce utility for real-time validation
+export const debounce = <T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};

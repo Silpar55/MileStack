@@ -313,3 +313,23 @@ export const unlockUserAccount = async (userId: string): Promise<void> => {
     })
     .where(eq(users.id, userId));
 };
+
+// Export auth object for compatibility
+export const auth = {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  createUserSession,
+  revokeRefreshToken,
+  revokeAllUserSessions,
+  hashPassword,
+  verifyPassword,
+  validatePassword,
+  checkRateLimit,
+  logAuditEvent,
+  generateSecureToken,
+  isAccountLocked,
+  lockUserAccount,
+  unlockUserAccount,
+};
