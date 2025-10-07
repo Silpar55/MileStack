@@ -1,613 +1,501 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Search,
-  Filter,
-  Eye,
+  FileText,
+  Target,
   CheckCircle,
   XCircle,
-  AlertTriangle,
-  FileText,
-  Code,
-  Image,
-  Shield,
+  Clock,
+  Star,
+  TrendingUp,
+  Users,
+  Eye,
+  Edit,
+  Trash2,
   Flag,
+  AlertTriangle,
 } from "lucide-react";
 
-export default function AdminContentPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
+interface ContentModeration {
+  challenges: {
+    pending: Array<{
+      id: string;
+      title: string;
+      description: string;
+      difficulty: string;
+      submittedBy: string;
+      submittedAt: Date;
+      reviewStatus: "pending" | "approved" | "rejected";
+      qualityScore: number;
+    }>;
+    approved: Array<{
+      id: string;
+      title: string;
+      completionRate: number;
+      averageRating: number;
+      lastUpdated: Date;
+    }>;
+  };
+  assignments: {
+    pending: Array<{
+      id: string;
+      title: string;
+      description: string;
+      difficulty: string;
+      submittedBy: string;
+      submittedAt: Date;
+      reviewStatus: "pending" | "approved" | "rejected";
+    }>;
+    approved: Array<{
+      id: string;
+      title: string;
+      completionRate: number;
+      averageScore: number;
+      lastUpdated: Date;
+    }>;
+  };
+}
 
-  const assignments = [
-    {
-      id: 1,
-      title: "React Todo App",
-      author: "John Doe",
-      university: "Stanford University",
-      status: "approved",
-      uploadDate: "2024-01-15",
-      submissions: 45,
-      violations: 0,
-      type: "assignment",
-    },
-    {
-      id: 2,
-      title: "Database Design Project",
-      author: "Jane Smith",
-      university: "MIT",
-      status: "pending",
-      uploadDate: "2024-01-14",
-      submissions: 0,
-      violations: 0,
-      type: "assignment",
-    },
-    {
-      id: 3,
-      title: "Binary Tree Traversal",
-      author: "System",
-      university: "Milestack",
-      status: "approved",
-      uploadDate: "2024-01-10",
-      submissions: 1200,
-      violations: 0,
-      type: "challenge",
-    },
-    {
-      id: 4,
-      title: "Suspicious Assignment",
-      author: "Alex Chen",
-      university: "UC Berkeley",
-      status: "flagged",
-      uploadDate: "2024-01-13",
-      submissions: 3,
-      violations: 2,
-      type: "assignment",
-    },
-  ];
+export default function ContentModerationPage() {
+  const [moderation, setModeration] = useState<ContentModeration | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedChallenge, setSelectedChallenge] = useState<string | null>(
+    null
+  );
 
-  const aiSessions = [
-    {
-      id: 1,
-      user: "John Doe",
-      topic: "React State Management",
-      pointsUsed: 15,
-      status: "completed",
-      timestamp: "2024-01-15T10:30:00Z",
-      violations: 0,
-    },
-    {
-      id: 2,
-      user: "Jane Smith",
-      topic: "Algorithm Optimization",
-      pointsUsed: 25,
-      status: "completed",
-      timestamp: "2024-01-15T09:15:00Z",
-      violations: 0,
-    },
-    {
-      id: 3,
-      user: "Alex Chen",
-      topic: "Complete Code Solution",
-      pointsUsed: 50,
-      status: "flagged",
-      timestamp: "2024-01-14T16:45:00Z",
-      violations: 1,
-    },
-  ];
+  useEffect(() => {
+    loadModerationData();
+  }, []);
 
-  const violations = [
-    {
-      id: 1,
-      type: "Academic Integrity",
-      description: "Requested complete solution instead of guidance",
-      user: "Alex Chen",
-      content: "AI Session #3",
-      severity: "high",
-      status: "pending",
-      reportedDate: "2024-01-14",
-    },
-    {
-      id: 2,
-      type: "Inappropriate Content",
-      description: "Assignment contains offensive language",
-      user: "Mike Johnson",
-      content: "Assignment #4",
-      severity: "medium",
-      status: "resolved",
-      reportedDate: "2024-01-13",
-    },
-    {
-      id: 3,
-      type: "Spam",
-      description: "Multiple duplicate assignments uploaded",
-      user: "Sarah Wilson",
-      content: "Assignment #5",
-      severity: "low",
-      status: "pending",
-      reportedDate: "2024-01-12",
-    },
-  ];
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "approved":
-        return "bg-green-100 text-green-800";
-      case "pending":
-        return "bg-yellow-100 text-yellow-800";
-      case "flagged":
-        return "bg-red-100 text-red-800";
-      case "completed":
-        return "bg-blue-100 text-blue-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+  const loadModerationData = async () => {
+    try {
+      const response = await fetch("/api/admin/content/moderation");
+      const data = await response.json();
+      setModeration(data);
+    } catch (error) {
+      console.error("Error loading moderation data:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "high":
-        return "bg-red-100 text-red-800";
-      case "medium":
-        return "bg-yellow-100 text-yellow-800";
-      case "low":
-        return "bg-green-100 text-green-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+  const handleChallengeAction = async (
+    challengeId: string,
+    action: "approve" | "reject",
+    reason?: string
+  ) => {
+    try {
+      const response = await fetch("/api/admin/content/challenge/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          challengeId,
+          action,
+          approvedBy: "admin", // This would come from auth
+          reason,
+        }),
+      });
+
+      if (response.ok) {
+        await loadModerationData();
+        setSelectedChallenge(null);
+      }
+    } catch (error) {
+      console.error("Error processing challenge action:", error);
     }
   };
 
-  const handleContentAction = (contentId: number, action: string) => {
-    console.log(`Action ${action} for content ${contentId}`);
-  };
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading content moderation...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const handleViolationAction = (violationId: number, action: string) => {
-    console.log(`Action ${action} for violation ${violationId}`);
-  };
+  if (!moderation) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Unable to load content moderation data. Please try again later.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Content Management</h1>
-          <p className="text-muted-foreground">
-            Monitor and moderate platform content, assignments, and AI sessions
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Content Moderation
+          </h1>
+          <p className="text-gray-600">
+            Review and approve community-submitted challenges and assignments.
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        {/* Summary Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <FileText className="w-8 h-8 text-blue-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <Clock className="h-8 w-8 text-yellow-600" />
                 <div>
-                  <p className="text-2xl font-bold">1,247</p>
-                  <p className="text-sm text-muted-foreground">
-                    Total Assignments
+                  <p className="text-2xl font-bold">
+                    {moderation.challenges.pending.length}
                   </p>
+                  <p className="text-sm text-gray-600">Pending Challenges</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Code className="w-8 h-8 text-green-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-8 w-8 text-green-600" />
                 <div>
-                  <p className="text-2xl font-bold">342</p>
-                  <p className="text-sm text-muted-foreground">
-                    Active Challenges
+                  <p className="text-2xl font-bold">
+                    {moderation.challenges.approved.length}
                   </p>
+                  <p className="text-sm text-gray-600">Approved Challenges</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Flag className="w-8 h-8 text-red-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <Target className="h-8 w-8 text-blue-600" />
                 <div>
-                  <p className="text-2xl font-bold">12</p>
-                  <p className="text-sm text-muted-foreground">
-                    Flagged Content
+                  <p className="text-2xl font-bold">
+                    {moderation.assignments.pending.length}
                   </p>
+                  <p className="text-sm text-gray-600">Pending Assignments</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Shield className="w-8 h-8 text-purple-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <FileText className="h-8 w-8 text-purple-600" />
                 <div>
-                  <p className="text-2xl font-bold">98.5%</p>
-                  <p className="text-sm text-muted-foreground">
-                    Compliance Rate
+                  <p className="text-2xl font-bold">
+                    {moderation.assignments.approved.length}
                   </p>
+                  <p className="text-sm text-gray-600">Approved Assignments</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <Tabs defaultValue="assignments" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+        {/* Main Content */}
+        <Tabs defaultValue="challenges" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="challenges">Challenges</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
-            <TabsTrigger value="ai-sessions">AI Sessions</TabsTrigger>
-            <TabsTrigger value="violations">Violations</TabsTrigger>
-            <TabsTrigger value="moderation">Moderation</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="assignments" className="space-y-6">
-            {/* Filters */}
+          {/* Challenges Tab */}
+          <TabsContent value="challenges" className="space-y-6">
+            {/* Pending Challenges */}
             <Card>
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                      <Input
-                        placeholder="Search assignments..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <Select
-                      value={statusFilter}
-                      onValueChange={setStatusFilter}
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Pending Review
+                </CardTitle>
+                <CardDescription>
+                  Community-submitted challenges awaiting approval.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {moderation.challenges.pending.map((challenge) => (
+                    <div
+                      key={challenge.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
                     >
-                      <SelectTrigger className="w-40">
-                        <Filter className="w-4 h-4 mr-2" />
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="approved">Approved</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="flagged">Flagged</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={typeFilter} onValueChange={setTypeFilter}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Types</SelectItem>
-                        <SelectItem value="assignment">Assignment</SelectItem>
-                        <SelectItem value="challenge">Challenge</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">{challenge.title}</h4>
+                            <Badge variant="outline" className="text-xs">
+                              {challenge.difficulty}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">
+                              Quality: {challenge.qualityScore}%
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {challenge.description}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span>Submitted by: {challenge.submittedBy}</span>
+                            <span>
+                              {new Date(
+                                challenge.submittedAt
+                              ).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => setSelectedChallenge(challenge.id)}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Review
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              handleChallengeAction(challenge.id, "approve")
+                            }
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              handleChallengeAction(
+                                challenge.id,
+                                "reject",
+                                "Quality concerns"
+                              )
+                            }
+                          >
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Assignments Table */}
+            {/* Approved Challenges */}
             <Card>
               <CardHeader>
-                <CardTitle>Assignments & Challenges</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  Approved Challenges
+                </CardTitle>
+                <CardDescription>
+                  Successfully approved challenges with performance metrics.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Author</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Submissions</TableHead>
-                      <TableHead>Violations</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {assignments.map((assignment) => (
-                      <TableRow key={assignment.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{assignment.title}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {assignment.university}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{assignment.author}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{assignment.type}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(assignment.status)}>
-                            {assignment.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{assignment.submissions}</TableCell>
-                        <TableCell>
-                          <span
-                            className={
-                              assignment.violations > 0
-                                ? "text-red-600 font-medium"
-                                : "text-green-600"
-                            }
-                          >
-                            {assignment.violations}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleContentAction(assignment.id, "view")
-                              }
+                <div className="space-y-4">
+                  {moderation.challenges.approved.map((challenge) => (
+                    <div
+                      key={challenge.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">{challenge.title}</h4>
+                            <Badge
+                              variant="outline"
+                              className="text-xs text-green-600"
                             >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            {assignment.status === "pending" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleContentAction(assignment.id, "approve")
-                                }
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </Button>
-                            )}
-                            {assignment.status === "flagged" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleContentAction(assignment.id, "review")
-                                }
-                              >
-                                <AlertTriangle className="w-4 h-4" />
-                              </Button>
-                            )}
+                              Approved
+                            </Badge>
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="ai-sessions" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>AI Sessions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Topic</TableHead>
-                      <TableHead>Points Used</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {aiSessions.map((session) => (
-                      <TableRow key={session.id}>
-                        <TableCell>{session.user}</TableCell>
-                        <TableCell>{session.topic}</TableCell>
-                        <TableCell>{session.pointsUsed}</TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(session.status)}>
-                            {session.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(session.timestamp).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleContentAction(session.id, "view")
-                              }
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            {session.status === "flagged" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleContentAction(session.id, "review")
-                                }
-                              >
-                                <AlertTriangle className="w-4 h-4" />
-                              </Button>
-                            )}
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <div className="flex items-center gap-1">
+                              <TrendingUp className="h-4 w-4" />
+                              <span>
+                                {challenge.completionRate}% completion
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Star className="h-4 w-4" />
+                              <span>{challenge.averageRating}/5.0 rating</span>
+                            </div>
+                            <span>
+                              Updated:{" "}
+                              {new Date(
+                                challenge.lastUpdated
+                              ).toLocaleDateString()}
+                            </span>
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="violations" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Content Violations</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Content</TableHead>
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {violations.map((violation) => (
-                      <TableRow key={violation.id}>
-                        <TableCell>{violation.type}</TableCell>
-                        <TableCell>{violation.description}</TableCell>
-                        <TableCell>{violation.user}</TableCell>
-                        <TableCell>{violation.content}</TableCell>
-                        <TableCell>
-                          <Badge
-                            className={getSeverityColor(violation.severity)}
-                          >
-                            {violation.severity}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(violation.status)}>
-                            {violation.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleViolationAction(violation.id, "view")
-                              }
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            {violation.status === "pending" && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    handleViolationAction(
-                                      violation.id,
-                                      "resolve"
-                                    )
-                                  }
-                                >
-                                  <CheckCircle className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    handleViolationAction(
-                                      violation.id,
-                                      "dismiss"
-                                    )
-                                  }
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="moderation" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Moderation Tools</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h3 className="font-semibold">Content Filters</h3>
-                    <div className="space-y-2">
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <Shield className="w-4 h-4 mr-2" />
-                        Academic Integrity Scanner
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <Flag className="w-4 h-4 mr-2" />
-                        Inappropriate Content Filter
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <FileText className="w-4 h-4 mr-2" />
-                        Plagiarism Detection
-                      </Button>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline">
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-4">
-                    <h3 className="font-semibold">Automated Actions</h3>
-                    <div className="space-y-2">
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Auto-approve Low Risk Content
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <AlertTriangle className="w-4 h-4 mr-2" />
-                        Flag High Risk Content
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                      >
-                        <XCircle className="w-4 h-4 mr-2" />
-                        Auto-reject Violations
-                      </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Assignments Tab */}
+          <TabsContent value="assignments" className="space-y-6">
+            {/* Pending Assignments */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Pending Review
+                </CardTitle>
+                <CardDescription>
+                  Community-submitted assignments awaiting approval.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {moderation.assignments.pending.map((assignment) => (
+                    <div
+                      key={assignment.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">{assignment.title}</h4>
+                            <Badge variant="outline" className="text-xs">
+                              {assignment.difficulty}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {assignment.description}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span>Submitted by: {assignment.submittedBy}</span>
+                            <span>
+                              {new Date(
+                                assignment.submittedAt
+                              ).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-2" />
+                            Review
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Approve
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Approved Assignments */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  Approved Assignments
+                </CardTitle>
+                <CardDescription>
+                  Successfully approved assignments with performance metrics.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {moderation.assignments.approved.map((assignment) => (
+                    <div
+                      key={assignment.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">{assignment.title}</h4>
+                            <Badge
+                              variant="outline"
+                              className="text-xs text-green-600"
+                            >
+                              Approved
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm text-gray-600">
+                            <div className="flex items-center gap-1">
+                              <TrendingUp className="h-4 w-4" />
+                              <span>
+                                {assignment.completionRate}% completion
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Target className="h-4 w-4" />
+                              <span>
+                                {assignment.averageScore}% average score
+                              </span>
+                            </div>
+                            <span>
+                              Updated:{" "}
+                              {new Date(
+                                assignment.lastUpdated
+                              ).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline">
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -617,4 +505,3 @@ export default function AdminContentPage() {
     </div>
   );
 }
-

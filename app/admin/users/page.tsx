@@ -1,355 +1,405 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Search,
-  Filter,
-  MoreHorizontal,
-  Shield,
+  Users,
+  Flag,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Eye,
   UserCheck,
   UserX,
-  Eye,
-  AlertTriangle,
+  Activity,
+  Shield,
+  TrendingUp,
+  AlertCircle,
+  XCircle,
 } from "lucide-react";
 
-export default function AdminUsersPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [roleFilter, setRoleFilter] = useState("all");
+interface UserModeration {
+  flaggedUsers: Array<{
+    id: string;
+    name: string;
+    email: string;
+    institution?: string;
+    flagReason: string;
+    flagDate: Date;
+    riskScore: number;
+    recentActivity: Array<{
+      type: string;
+      timestamp: Date;
+      description: string;
+    }>;
+  }>;
+  suspiciousActivity: Array<{
+    id: string;
+    userId: string;
+    activityType: string;
+    riskScore: number;
+    detectedAt: Date;
+    description: string;
+    status: "investigating" | "resolved" | "false_positive";
+  }>;
+}
 
-  const users = [
-    {
-      id: 1,
-      name: "John Doe",
-      email: "john.doe@university.edu",
-      university: "Stanford University",
-      role: "student",
-      status: "active",
-      joinDate: "2024-09-15",
-      lastActive: "2 hours ago",
-      points: 8420,
-      assignmentsCompleted: 12,
-      violations: 0,
-      avatar: "",
-    },
-    {
-      id: 2,
-      name: "Jane Smith",
-      email: "jane.smith@university.edu",
-      university: "MIT",
-      role: "student",
-      status: "active",
-      joinDate: "2024-09-10",
-      lastActive: "1 day ago",
-      points: 12500,
-      assignmentsCompleted: 18,
-      violations: 1,
-      avatar: "",
-    },
-    {
-      id: 3,
-      name: "Dr. Michael Johnson",
-      email: "m.johnson@university.edu",
-      university: "Stanford University",
-      role: "instructor",
-      status: "active",
-      joinDate: "2024-08-20",
-      lastActive: "3 hours ago",
-      points: 0,
-      assignmentsCompleted: 0,
-      violations: 0,
-      avatar: "",
-    },
-    {
-      id: 4,
-      name: "Alex Chen",
-      email: "alex.chen@university.edu",
-      university: "UC Berkeley",
-      role: "student",
-      status: "suspended",
-      joinDate: "2024-09-05",
-      lastActive: "1 week ago",
-      points: 2450,
-      assignmentsCompleted: 5,
-      violations: 3,
-      avatar: "",
-    },
-    {
-      id: 5,
-      name: "Sarah Wilson",
-      email: "sarah.wilson@university.edu",
-      university: "Harvard University",
-      role: "student",
-      status: "inactive",
-      joinDate: "2024-08-30",
-      lastActive: "2 weeks ago",
-      points: 3200,
-      assignmentsCompleted: 8,
-      violations: 0,
-      avatar: "",
-    },
-  ];
+export default function UserModerationPage() {
+  const [moderation, setModeration] = useState<UserModeration | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.university.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    loadModerationData();
+  }, []);
 
-    const matchesStatus =
-      statusFilter === "all" || user.status === statusFilter;
-    const matchesRole = roleFilter === "all" || user.role === roleFilter;
-
-    return matchesSearch && matchesStatus && matchesRole;
-  });
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800";
-      case "suspended":
-        return "bg-red-100 text-red-800";
-      case "inactive":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+  const loadModerationData = async () => {
+    try {
+      const response = await fetch("/api/admin/users/flagged");
+      const data = await response.json();
+      setModeration(data);
+    } catch (error) {
+      console.error("Error loading user moderation data:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case "admin":
-        return "bg-purple-100 text-purple-800";
-      case "instructor":
-        return "bg-blue-100 text-blue-800";
-      case "student":
-        return "bg-green-100 text-green-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+  const handleUserAction = async (
+    userId: string,
+    action: "flag" | "unflag",
+    reason?: string
+  ) => {
+    try {
+      const response = await fetch("/api/admin/users/flagged", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          action,
+          reason,
+          adminId: "admin", // This would come from auth
+        }),
+      });
+
+      if (response.ok) {
+        await loadModerationData();
+        setSelectedUser(null);
+      }
+    } catch (error) {
+      console.error("Error processing user action:", error);
     }
   };
 
-  const handleUserAction = (userId: number, action: string) => {
-    console.log(`Action ${action} for user ${userId}`);
-  };
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading user moderation...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!moderation) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Unable to load user moderation data. Please try again later.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">User Management</h1>
-          <p className="text-muted-foreground">
-            Manage users, roles, and permissions across the platform
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            User Moderation
+          </h1>
+          <p className="text-gray-600">
+            Monitor flagged users and suspicious activity patterns.
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        {/* Summary Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <UserCheck className="w-8 h-8 text-green-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <Flag className="h-8 w-8 text-red-600" />
                 <div>
-                  <p className="text-2xl font-bold">1,247</p>
-                  <p className="text-sm text-muted-foreground">Active Users</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <UserX className="w-8 h-8 text-red-500 mr-3" />
-                <div>
-                  <p className="text-2xl font-bold">23</p>
-                  <p className="text-sm text-muted-foreground">
-                    Suspended Users
+                  <p className="text-2xl font-bold">
+                    {moderation.flaggedUsers.length}
                   </p>
+                  <p className="text-sm text-gray-600">Flagged Users</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center">
-                <Shield className="w-8 h-8 text-blue-500 mr-3" />
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="h-8 w-8 text-yellow-600" />
                 <div>
-                  <p className="text-2xl font-bold">45</p>
-                  <p className="text-sm text-muted-foreground">Instructors</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <AlertTriangle className="w-8 h-8 text-yellow-500 mr-3" />
-                <div>
-                  <p className="text-2xl font-bold">12</p>
-                  <p className="text-sm text-muted-foreground">
-                    Violations This Week
+                  <p className="text-2xl font-bold">
+                    {moderation.suspiciousActivity.length}
                   </p>
+                  <p className="text-sm text-gray-600">Suspicious Activities</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3">
+                <Shield className="h-8 w-8 text-green-600" />
+                <div>
+                  <p className="text-2xl font-bold">
+                    {
+                      moderation.flaggedUsers.filter(
+                        (user) => user.riskScore >= 80
+                      ).length
+                    }
+                  </p>
+                  <p className="text-sm text-gray-600">High Risk Users</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-8 w-8 text-blue-600" />
+                <div>
+                  <p className="text-2xl font-bold">
+                    {
+                      moderation.suspiciousActivity.filter(
+                        (activity) => activity.status === "resolved"
+                      ).length
+                    }
+                  </p>
+                  <p className="text-sm text-gray-600">Resolved Cases</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Filters */}
-        <Card className="mb-6">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <Input
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-40">
-                    <Filter className="w-4 h-4 mr-2" />
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="suspended">Suspended</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={roleFilter} onValueChange={setRoleFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Roles</SelectItem>
-                    <SelectItem value="student">Student</SelectItem>
-                    <SelectItem value="instructor">Instructor</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Main Content */}
+        <Tabs defaultValue="flagged" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="flagged">Flagged Users</TabsTrigger>
+            <TabsTrigger value="activity">Suspicious Activity</TabsTrigger>
+          </TabsList>
 
-        {/* Users Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Users ({filteredUsers.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>University</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Points</TableHead>
-                  <TableHead>Violations</TableHead>
-                  <TableHead>Last Active</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex items-center">
-                        <Avatar className="w-8 h-8 mr-3">
-                          <AvatarImage src={user.avatar} />
-                          <AvatarFallback>
-                            {user.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{user.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {user.email}
+          {/* Flagged Users Tab */}
+          <TabsContent value="flagged" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Flag className="h-5 w-5" />
+                  Flagged Users
+                </CardTitle>
+                <CardDescription>
+                  Users flagged for unusual activity or policy violations.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {moderation.flaggedUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">{user.name}</h4>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${
+                                user.riskScore >= 80
+                                  ? "text-red-600"
+                                  : user.riskScore >= 60
+                                  ? "text-yellow-600"
+                                  : "text-green-600"
+                              }`}
+                            >
+                              Risk: {user.riskScore}%
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className="text-xs text-red-600"
+                            >
+                              Flagged
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {user.email}{" "}
+                            {user.institution && `• ${user.institution}`}
                           </p>
+                          <p className="text-sm text-gray-600 mb-2">
+                            <strong>Reason:</strong> {user.flagReason}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span>
+                              Flagged:{" "}
+                              {new Date(user.flagDate).toLocaleDateString()}
+                            </span>
+                            <span>
+                              Activities: {user.recentActivity.length}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => setSelectedUser(user.id)}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Review
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleUserAction(user.id, "unflag")}
+                          >
+                            <UserCheck className="h-4 w-4 mr-2" />
+                            Unflag
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              handleUserAction(
+                                user.id,
+                                "flag",
+                                "Additional review required"
+                              )
+                            }
+                          >
+                            <Flag className="h-4 w-4 mr-2" />
+                            Re-flag
+                          </Button>
                         </div>
                       </div>
-                    </TableCell>
-                    <TableCell>{user.university}</TableCell>
-                    <TableCell>
-                      <Badge className={getRoleColor(user.role)}>
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getStatusColor(user.status)}>
-                        {user.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{user.points.toLocaleString()}</TableCell>
-                    <TableCell>
-                      <span
-                        className={
-                          user.violations > 0
-                            ? "text-red-600 font-medium"
-                            : "text-green-600"
-                        }
-                      >
-                        {user.violations}
-                      </span>
-                    </TableCell>
-                    <TableCell>{user.lastActive}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleUserAction(user.id, "view")}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleUserAction(user.id, "more")}
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Suspicious Activity Tab */}
+          <TabsContent value="activity" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Suspicious Activity
+                </CardTitle>
+                <CardDescription>
+                  Automated detection of unusual patterns and potential
+                  violations.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {moderation.suspiciousActivity.map((activity) => (
+                    <div
+                      key={activity.id}
+                      className="border rounded-lg p-4 hover:bg-gray-50"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-medium">
+                              {activity.activityType}
+                            </h4>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${
+                                activity.riskScore >= 80
+                                  ? "text-red-600"
+                                  : activity.riskScore >= 60
+                                  ? "text-yellow-600"
+                                  : "text-green-600"
+                              }`}
+                            >
+                              Risk: {activity.riskScore}%
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${
+                                activity.status === "resolved"
+                                  ? "text-green-600"
+                                  : activity.status === "investigating"
+                                  ? "text-yellow-600"
+                                  : "text-gray-600"
+                              }`}
+                            >
+                              {activity.status.replace("_", " ")}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            {activity.description}
+                          </p>
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span>User: {activity.userId}</span>
+                            <span>
+                              Detected:{" "}
+                              {new Date(
+                                activity.detectedAt
+                              ).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-2" />
+                            Investigate
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Resolve
+                          </Button>
+                          <Button size="sm" variant="outline">
+                            <XCircle className="h-4 w-4 mr-2" />
+                            False Positive
+                          </Button>
+                        </div>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
 }
-
