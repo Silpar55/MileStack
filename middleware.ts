@@ -2,12 +2,110 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "./auth";
 
+// Edge Runtime compatible JWT verification
+async function verifyAccessTokenEdge(
+  token: string
+): Promise<{ userId: string; email: string } | null> {
+  try {
+    const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key";
+
+    // Split the token
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const [header, payload, signature] = parts;
+
+    // Decode the payload
+    const decodedPayload = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+    );
+
+    // Check if token is expired
+    if (decodedPayload.exp && Date.now() >= decodedPayload.exp * 1000) {
+      return null;
+    }
+
+    // Check token type
+    if (decodedPayload.type !== "access") {
+      return null;
+    }
+
+    // Verify signature using Web Crypto API
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(JWT_SECRET);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const signatureBuffer = Uint8Array.from(
+      atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0)
+    );
+    const data = encoder.encode(`${header}.${payload}`);
+
+    const isValid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      signatureBuffer,
+      data
+    );
+
+    if (!isValid) {
+      return null;
+    }
+
+    return { userId: decodedPayload.userId, email: decodedPayload.email };
+  } catch (error) {
+    console.log("Edge JWT verification failed:", error);
+    return null;
+  }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Get the session
   const session = await auth();
-  const isAuthenticated = !!session?.user;
+  const isNextAuthAuthenticated = !!session?.user;
+
+  // Check for JWT token in cookies
+  const accessToken = request.cookies.get("accessToken")?.value;
+  let isJWTAuthenticated = false;
+
+  console.log("Middleware debug:", {
+    pathname,
+    hasNextAuthSession: !!session?.user,
+    hasAccessTokenCookie: !!accessToken,
+    accessTokenLength: accessToken?.length || 0,
+    allCookies: request.cookies.getAll().map((c) => c.name),
+  });
+
+  if (accessToken) {
+    try {
+      const tokenData = await verifyAccessTokenEdge(accessToken);
+      isJWTAuthenticated = !!tokenData;
+      console.log("JWT token verification:", {
+        success: !!tokenData,
+        userId: tokenData?.userId,
+      });
+    } catch (error) {
+      console.log("JWT token verification failed:", error);
+      isJWTAuthenticated = false;
+    }
+  }
+
+  const isAuthenticated = isNextAuthAuthenticated || isJWTAuthenticated;
+  console.log("Final authentication status:", {
+    isNextAuthAuthenticated,
+    isJWTAuthenticated,
+    isAuthenticated,
+  });
 
   // Define public routes that don't require authentication
   const publicRoutes = [
@@ -69,11 +167,13 @@ export async function middleware(request: NextRequest) {
 
   // If user is not authenticated and on root path, redirect to login
   if (!isAuthenticated && pathname === "/") {
+    console.log("Redirecting unauthenticated user from root to login");
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // If user is authenticated and on root path, redirect to dashboard
   if (isAuthenticated && pathname === "/") {
+    console.log("Redirecting authenticated user from root to dashboard");
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
