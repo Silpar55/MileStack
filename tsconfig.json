@@ -1,5 +1,5 @@
 {
-  "include": ["app/**/*", "shared/**/*", ".next/types/**/*.ts"],
+  "include": ["app/**/*", "shared/**/*", "types/**/*", ".next/types/**/*.ts"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,
