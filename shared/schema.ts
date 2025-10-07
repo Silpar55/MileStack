@@ -7,6 +7,7 @@ import {
   integer,
   varchar,
   jsonb,
+  date,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -124,3 +125,475 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+// Challenge system tables
+export const challenges = pgTable("challenges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  difficulty: varchar("difficulty", { length: 20 }).notNull(), // 'beginner', 'intermediate', 'advanced', 'expert'
+  category: varchar("category", { length: 50 }).notNull(), // 'data-structures', 'algorithms', 'web-dev', 'database', 'system-design'
+  subcategory: varchar("subcategory", { length: 100 }), // 'arrays', 'trees', 'sorting', 'react', etc.
+  points: integer("points").notNull().default(100),
+  timeLimit: integer("time_limit"), // in seconds, null for no limit
+  memoryLimit: integer("memory_limit"), // in MB, null for no limit
+  prerequisites: jsonb("prerequisites"), // Array of prerequisite challenge IDs
+  tags: jsonb("tags"), // Array of tags for filtering
+  starterCode: jsonb("starter_code"), // Language-specific starter code
+  testCases: jsonb("test_cases").notNull(), // Array of test cases
+  expectedOutput: jsonb("expected_output"), // Expected output format
+  hints: jsonb("hints"), // Array of hints
+  solution: text("solution"), // Official solution (optional)
+  isActive: boolean("is_active").default(true).notNull(),
+  isPublic: boolean("is_public").default(true).notNull(),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  approvedBy: uuid("approved_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  approvedAt: timestamp("approved_at"),
+  rating: integer("rating").default(0), // Average user rating (1-5)
+  ratingCount: integer("rating_count").default(0),
+  submissionCount: integer("submission_count").default(0),
+  solvedCount: integer("solved_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const challengeSubmissions = pgTable("challenge_submissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  challengeId: uuid("challenge_id")
+    .notNull()
+    .references(() => challenges.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  code: text("code").notNull(),
+  language: varchar("language", { length: 20 }).notNull(), // 'javascript', 'python', 'java', 'cpp', etc.
+  status: varchar("status", { length: 20 }).notNull(), // 'pending', 'running', 'passed', 'failed', 'timeout', 'error'
+  executionTime: integer("execution_time"), // in milliseconds
+  memoryUsed: integer("memory_used"), // in MB
+  testResults: jsonb("test_results"), // Detailed test case results
+  errorMessage: text("error_message"),
+  pointsEarned: integer("points_earned").default(0),
+  isFirstSolve: boolean("is_first_solve").default(false),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+});
+
+export const challengeRatings = pgTable("challenge_ratings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  challengeId: uuid("challenge_id")
+    .notNull()
+    .references(() => challenges.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  rating: integer("rating").notNull(), // 1-5 stars
+  difficultyRating: integer("difficulty_rating"), // 1-5 difficulty
+  qualityRating: integer("quality_rating"), // 1-5 quality
+  feedback: text("feedback"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const leaderboards = pgTable("leaderboards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  category: varchar("category", { length: 50 }), // 'overall', 'data-structures', 'algorithms', etc.
+  points: integer("points").default(0).notNull(),
+  rank: integer("rank"),
+  challengesSolved: integer("challenges_solved").default(0),
+  averageTime: integer("average_time"), // Average solve time in minutes
+  streak: integer("streak").default(0), // Current solving streak
+  longestStreak: integer("longest_streak").default(0),
+  lastSolvedAt: timestamp("last_solved_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const userProgress = pgTable("user_progress", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  challengeId: uuid("challenge_id")
+    .notNull()
+    .references(() => challenges.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 20 }).notNull(), // 'not-started', 'in-progress', 'completed', 'skipped'
+  attempts: integer("attempts").default(0),
+  bestScore: integer("best_score").default(0),
+  timeSpent: integer("time_spent").default(0), // in minutes
+  hintsUsed: integer("hints_used").default(0),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Challenge system relations
+export const challengesRelations = relations(challenges, ({ many, one }) => ({
+  submissions: many(challengeSubmissions),
+  ratings: many(challengeRatings),
+  progress: many(userProgress),
+  creator: one(users, {
+    fields: [challenges.createdBy],
+    references: [users.id],
+  }),
+  approver: one(users, {
+    fields: [challenges.approvedBy],
+    references: [users.id],
+  }),
+}));
+
+export const challengeSubmissionsRelations = relations(
+  challengeSubmissions,
+  ({ one }) => ({
+    challenge: one(challenges, {
+      fields: [challengeSubmissions.challengeId],
+      references: [challenges.id],
+    }),
+    user: one(users, {
+      fields: [challengeSubmissions.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const challengeRatingsRelations = relations(
+  challengeRatings,
+  ({ one }) => ({
+    challenge: one(challenges, {
+      fields: [challengeRatings.challengeId],
+      references: [challenges.id],
+    }),
+    user: one(users, {
+      fields: [challengeRatings.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const leaderboardsRelations = relations(leaderboards, ({ one }) => ({
+  user: one(users, {
+    fields: [leaderboards.userId],
+    references: [users.id],
+  }),
+}));
+
+export const userProgressRelations = relations(userProgress, ({ one }) => ({
+  user: one(users, {
+    fields: [userProgress.userId],
+    references: [users.id],
+  }),
+  challenge: one(challenges, {
+    fields: [userProgress.challengeId],
+    references: [challenges.id],
+  }),
+}));
+
+// Learning Pathway System Tables
+export const learningPathways = pgTable("learning_pathways", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  category: varchar("category", { length: 50 }).notNull(), // 'data-structures', 'algorithms', 'web-dev', etc.
+  difficulty: varchar("difficulty", { length: 20 }).notNull(), // 'beginner', 'intermediate', 'advanced', 'expert'
+  totalPoints: integer("total_points").notNull().default(0),
+  estimatedDuration: integer("estimated_duration"), // in hours
+  prerequisites: jsonb("prerequisites"), // Array of prerequisite pathway IDs
+  tags: jsonb("tags"), // Array of tags for filtering
+  isActive: boolean("is_active").default(true).notNull(),
+  isPublic: boolean("is_public").default(true).notNull(),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  approvedBy: uuid("approved_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const pathwayCheckpoints = pgTable("pathway_checkpoints", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pathwayId: uuid("pathway_id")
+    .notNull()
+    .references(() => learningPathways.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  type: varchar("type", { length: 30 }).notNull(), // 'concept-explanation', 'skill-assessment', 'code-review'
+  order: integer("order").notNull(),
+  points: integer("points").notNull(),
+  timeLimit: integer("time_limit"), // in minutes
+  maxAttempts: integer("max_attempts").default(3),
+  passingScore: integer("passing_score").default(80), // percentage
+  prerequisites: jsonb("prerequisites"), // Array of prerequisite checkpoint IDs
+  content: jsonb("content").notNull(), // Assessment content and questions
+  feedback: jsonb("feedback"), // Feedback templates
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const checkpointAttempts = pgTable("checkpoint_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  checkpointId: uuid("checkpoint_id")
+    .notNull()
+    .references(() => pathwayCheckpoints.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  attemptNumber: integer("attempt_number").notNull(),
+  responses: jsonb("responses").notNull(), // Student's answers
+  score: integer("score"), // percentage score
+  pointsEarned: integer("points_earned").default(0),
+  timeSpent: integer("time_spent"), // in minutes
+  feedback: jsonb("feedback"), // AI-generated feedback
+  status: varchar("status", { length: 20 }).notNull(), // 'in-progress', 'completed', 'failed'
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const pathwayProgress = pgTable("pathway_progress", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pathwayId: uuid("pathway_id")
+    .notNull()
+    .references(() => learningPathways.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 20 }).notNull(), // 'not-started', 'in-progress', 'completed', 'locked'
+  currentCheckpoint: uuid("current_checkpoint").references(
+    () => pathwayCheckpoints.id
+  ),
+  totalPoints: integer("total_points").default(0),
+  completedCheckpoints: integer("completed_checkpoints").default(0),
+  totalCheckpoints: integer("total_checkpoints").notNull(),
+  timeSpent: integer("time_spent").default(0), // in minutes
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  lastAccessedAt: timestamp("last_accessed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const competencyAssessments = pgTable("competency_assessments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  checkpointId: uuid("checkpoint_id")
+    .notNull()
+    .references(() => pathwayCheckpoints.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  assessmentType: varchar("assessment_type", { length: 30 }).notNull(), // 'concept-explanation', 'skill-assessment', 'code-review'
+  content: jsonb("content").notNull(), // Assessment content
+  aiAnalysis: jsonb("ai_analysis"), // AI analysis results
+  comprehensionScore: integer("comprehension_score"), // 0-100
+  accuracyScore: integer("accuracy_score"), // 0-100
+  overallScore: integer("overall_score"), // 0-100
+  feedback: text("feedback"),
+  isPassed: boolean("is_passed").default(false),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  evaluatedAt: timestamp("evaluated_at"),
+});
+
+// Learning Pathway Relations
+export const learningPathwaysRelations = relations(
+  learningPathways,
+  ({ many, one }) => ({
+    checkpoints: many(pathwayCheckpoints),
+    progress: many(pathwayProgress),
+    creator: one(users, {
+      fields: [learningPathways.createdBy],
+      references: [users.id],
+    }),
+    approver: one(users, {
+      fields: [learningPathways.approvedBy],
+      references: [users.id],
+    }),
+  })
+);
+
+export const pathwayCheckpointsRelations = relations(
+  pathwayCheckpoints,
+  ({ one, many }) => ({
+    pathway: one(learningPathways, {
+      fields: [pathwayCheckpoints.pathwayId],
+      references: [learningPathways.id],
+    }),
+    attempts: many(checkpointAttempts),
+    assessments: many(competencyAssessments),
+  })
+);
+
+export const checkpointAttemptsRelations = relations(
+  checkpointAttempts,
+  ({ one }) => ({
+    checkpoint: one(pathwayCheckpoints, {
+      fields: [checkpointAttempts.checkpointId],
+      references: [pathwayCheckpoints.id],
+    }),
+    user: one(users, {
+      fields: [checkpointAttempts.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+export const pathwayProgressRelations = relations(
+  pathwayProgress,
+  ({ one }) => ({
+    pathway: one(learningPathways, {
+      fields: [pathwayProgress.pathwayId],
+      references: [learningPathways.id],
+    }),
+    user: one(users, {
+      fields: [pathwayProgress.userId],
+      references: [users.id],
+    }),
+    currentCheckpoint: one(pathwayCheckpoints, {
+      fields: [pathwayProgress.currentCheckpoint],
+      references: [pathwayCheckpoints.id],
+    }),
+  })
+);
+
+export const competencyAssessmentsRelations = relations(
+  competencyAssessments,
+  ({ one }) => ({
+    checkpoint: one(pathwayCheckpoints, {
+      fields: [competencyAssessments.checkpointId],
+      references: [pathwayCheckpoints.id],
+    }),
+    user: one(users, {
+      fields: [competencyAssessments.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+// Points and Achievements System Tables
+export const userPoints = pgTable("user_points", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  currentBalance: integer("current_balance").default(0).notNull(),
+  totalEarned: integer("total_earned").default(0).notNull(),
+  totalSpent: integer("total_spent").default(0).notNull(),
+  dailyEarned: integer("daily_earned").default(0).notNull(),
+  lastEarnedDate: date("last_earned_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const pointTransactions = pgTable("point_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(), // Positive for earned, negative for spent
+  type: varchar("type", { length: 50 }).notNull(), // 'earned' or 'spent'
+  category: varchar("category", { length: 50 }).notNull(), // 'concept-explanation', 'mini-challenge', etc.
+  reason: text("reason").notNull(),
+  sourceId: uuid("source_id"), // ID of the activity that generated points
+  sourceType: varchar("source_type", { length: 50 }), // 'checkpoint', 'peer-help', 'ai-usage'
+  qualityScore: integer("quality_score"), // For anti-gaming measures
+  verified: boolean("verified").default(false).notNull(),
+  verifiedAt: timestamp("verified_at"),
+  verifiedBy: uuid("verified_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const achievements = pgTable("achievements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  achievementId: varchar("achievement_id", { length: 100 }).notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description").notNull(),
+  category: varchar("category", { length: 50 }).notNull(), // 'streak', 'mastery', 'collaboration', 'integrity'
+  icon: varchar("icon", { length: 100 }),
+  points: integer("points").default(0).notNull(),
+  criteria: jsonb("criteria").notNull(), // JSON object with criteria details
+  progress: jsonb("progress").notNull(), // Current progress towards achievement
+  unlockedAt: timestamp("unlocked_at"),
+  isUnlocked: boolean("is_unlocked").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const achievementTemplates = pgTable("achievement_templates", {
+  id: varchar("id", { length: 100 }).primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description").notNull(),
+  category: varchar("category", { length: 50 }).notNull(),
+  icon: varchar("icon", { length: 100 }),
+  points: integer("points").default(0).notNull(),
+  criteria: jsonb("criteria").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const fraudDetectionLogs = pgTable("fraud_detection_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  activityType: varchar("activity_type", { length: 50 }).notNull(),
+  riskScore: integer("risk_score").notNull(), // 0-100
+  flags: jsonb("flags").notNull(), // Array of detected issues
+  details: jsonb("details").notNull(), // Additional context
+  action: varchar("action", { length: 50 }).notNull(), // 'none', 'flag', 'block', 'review'
+  reviewed: boolean("reviewed").default(false).notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Points and Achievements Relations
+export const userPointsRelations = relations(userPoints, ({ one }) => ({
+  user: one(users, {
+    fields: [userPoints.userId],
+    references: [users.id],
+  }),
+}));
+
+export const pointTransactionsRelations = relations(
+  pointTransactions,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [pointTransactions.userId],
+      references: [users.id],
+    }),
+    verifier: one(users, {
+      fields: [pointTransactions.verifiedBy],
+      references: [users.id],
+    }),
+  })
+);
+
+export const achievementsRelations = relations(achievements, ({ one }) => ({
+  user: one(users, {
+    fields: [achievements.userId],
+    references: [users.id],
+  }),
+}));
+
+export const fraudDetectionLogsRelations = relations(
+  fraudDetectionLogs,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [fraudDetectionLogs.userId],
+      references: [users.id],
+    }),
+    reviewer: one(users, {
+      fields: [fraudDetectionLogs.reviewedBy],
+      references: [users.id],
+    }),
+  })
+);

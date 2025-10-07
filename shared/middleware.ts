@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "./auth";
+import { auth } from "../auth";
 
 // Authentication middleware
 export function withAuth(
@@ -29,6 +30,32 @@ export function withAuth(
       return await handler(request, tokenData.userId);
     } catch (error) {
       console.error("Auth middleware error:", error);
+      return NextResponse.json(
+        { error: "Authentication failed" },
+        { status: 401 }
+      );
+    }
+  };
+}
+
+// NextAuth-compatible authentication middleware
+export function withNextAuth(
+  handler: (request: NextRequest, userId: string) => Promise<NextResponse>
+) {
+  return async (request: NextRequest): Promise<NextResponse> => {
+    try {
+      const session = await auth();
+
+      if (!session?.user?.id) {
+        return NextResponse.json(
+          { error: "Authentication required" },
+          { status: 401 }
+        );
+      }
+
+      return await handler(request, session.user.id);
+    } catch (error) {
+      console.error("NextAuth middleware error:", error);
       return NextResponse.json(
         { error: "Authentication failed" },
         { status: 401 }

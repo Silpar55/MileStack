@@ -325,3 +325,16 @@ export class EmailService {
 
 // Export singleton instance
 export const emailService = EmailService.getInstance();
+
+// Export individual functions for convenience
+export const sendVerificationEmail = (
+  email: string,
+  name: string,
+  verificationToken: string
+) => emailService.sendVerificationEmail(email, name, verificationToken);
+
+export const sendPasswordResetEmail = (
+  email: string,
+  name: string,
+  resetToken: string
+) => emailService.sendPasswordResetEmail(email, name, resetToken);
