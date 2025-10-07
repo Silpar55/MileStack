@@ -6,8 +6,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
-export default function AssignmentsPage() {
+function AssignmentsPageContent() {
   const router = useRouter();
 
   // Mock assignments data
@@ -126,5 +127,13 @@ export default function AssignmentsPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+export default function AssignmentsPage() {
+  return (
+    <ProtectedRoute>
+      <AssignmentsPageContent />
+    </ProtectedRoute>
   );
 }

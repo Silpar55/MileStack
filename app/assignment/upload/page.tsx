@@ -230,11 +230,11 @@ export default function AssignmentUploadPage() {
   };
 
   const getFileIcon = (mimeType: string) => {
-    if (mimeType.startsWith("image/")) return <Image className="w-5 h-5" />;
-    if (mimeType === "application/pdf") return <FileText className="w-5 h-5" />;
-    if (mimeType.includes("word")) return <FileText className="w-5 h-5" />;
-    if (mimeType === "text/plain") return <Code className="w-5 h-5" />;
-    return <File className="w-5 h-5" />;
+    if (mimeType.startsWith("image/")) return <Image className="w-5 h-5" aria-label="Image file" />;
+    if (mimeType === "application/pdf") return <FileText className="w-5 h-5" aria-label="Document file" />;
+    if (mimeType.includes("word")) return <FileText className="w-5 h-5" aria-label="Document file" />;
+    if (mimeType === "text/plain") return <Code className="w-5 h-5" aria-label="Code file" />;
+    return <File className="w-5 h-5" aria-label="File" />;
   };
 
   const getStatusIcon = (status: string) => {
