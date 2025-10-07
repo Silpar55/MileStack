@@ -81,12 +81,25 @@ export const verifyAccessToken = (
   token: string
 ): { userId: string; email: string } | null => {
   try {
+    console.log("verifyAccessToken called with token length:", token.length);
+    console.log("JWT_SECRET exists:", !!JWT_SECRET);
+
     const decoded = jwt.verify(token, JWT_SECRET) as any;
+    console.log("Token decoded successfully:", {
+      type: decoded.type,
+      userId: decoded.userId,
+      email: decoded.email,
+    });
+
     if (decoded.type !== "access") {
+      console.log("Token type mismatch, expected 'access', got:", decoded.type);
       return null;
     }
+
+    console.log("Token verification successful");
     return { userId: decoded.userId, email: decoded.email };
   } catch (error) {
+    console.log("Token verification failed:", error);
     return null;
   }
 };

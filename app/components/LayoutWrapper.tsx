@@ -40,6 +40,14 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
 
   const fetchUserPoints = async () => {
     try {
+      console.log("fetchUserPoints called with:", {
+        isAuthenticated,
+        user: user?.id,
+        accessToken: accessToken ? "present" : "missing",
+        accessTokenType:
+          accessToken === "nextauth-session" ? "nextauth" : "jwt",
+      });
+
       // Prepare headers based on authentication method
       const headers: HeadersInit = {
         "Content-Type": "application/json",
@@ -48,7 +56,15 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       // If we have a JWT token, use it; otherwise rely on NextAuth session
       if (accessToken && accessToken !== "nextauth-session") {
         headers.Authorization = `Bearer ${accessToken}`;
+        console.log("Using JWT token for authentication");
+      } else {
+        console.log("Using NextAuth session for authentication");
       }
+
+      console.log(
+        "Making request to /api/points/balance with headers:",
+        headers
+      );
 
       const response = await fetch("/api/points/balance", {
         method: "GET",
@@ -56,7 +72,10 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
         credentials: "include", // Include cookies for NextAuth session
       });
 
+      console.log("Response status:", response.status);
       const data = await response.json();
+      console.log("Response data:", data);
+
       if (data.success) {
         setPoints(data.data.currentBalance);
       } else {
