@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/shared/db";
-import { users, userProfiles, honorCodeSignatures } from "@/shared/schema";
+import { users, userProfiles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { verifyAccessToken } from "@/shared/auth";
 import { auth } from "../../../../auth";
 
-export async function POST(request: NextRequest) {
+export async function PUT(request: NextRequest) {
   try {
-    const body = await request.json();
-
     let userId: string | null = null;
 
     // Try JWT token first (for manual login users)
@@ -46,8 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Since all fields are now optional, we don't validate required fields
-    // Just ensure we have the basic user info from auth
+    const body = await request.json();
+
+    // Validate required fields
+    if (!body.fullName || !body.fullName.trim()) {
+      return NextResponse.json(
+        { error: "Full name is required" },
+        { status: 400 }
+      );
+    }
 
     // Optional validation - only validate if data is provided
     if (body.email) {
@@ -71,35 +76,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const user = existingUser[0];
-
-    // Update user profile with optional data
     const now = new Date();
     const profileData = {
       userId: userId,
-      fullName:
-        body.fullName?.trim() ||
-        `${existingUser[0].firstName || ""} ${
-          existingUser[0].lastName || ""
-        }`.trim(),
+      fullName: body.fullName.trim(),
       email: body.email?.toLowerCase().trim() || existingUser[0].email,
       university: body.university || "",
       major: body.major?.trim() || "",
       year: body.year || "",
       programmingLanguages: body.programmingLanguages || {},
-      experienceLevel: body.experienceLevel || "",
+      experienceLevel: body.experienceLevel || "beginner",
       learningGoals: body.learningGoals || [],
       institutionId: body.institutionId || null,
       institutionName: body.institutionName || "",
-      dataUsageConsent: body.dataUsageConsent || false,
-      marketingConsent: body.marketingConsent || false,
-      researchParticipation: body.researchParticipation || false,
-      isProfileComplete: true, // Mark as complete since they visited the setup
-      profileCompletedAt: now,
+      dataUsageConsent: body.dataUsageConsent ?? existingUser[0].termsAccepted,
+      marketingConsent: body.marketingConsent ?? false,
+      researchParticipation: body.researchParticipation ?? false,
       updatedAt: now,
     };
 
-    // Save profile to database
+    // Update profile in database
     await db
       .insert(userProfiles)
       .values(profileData)
@@ -119,42 +115,19 @@ export async function POST(request: NextRequest) {
           dataUsageConsent: profileData.dataUsageConsent,
           marketingConsent: profileData.marketingConsent,
           researchParticipation: profileData.researchParticipation,
-          isProfileComplete: profileData.isProfileComplete,
-          profileCompletedAt: profileData.profileCompletedAt,
           updatedAt: now,
         },
       });
 
-    // Save honor code signature only if provided
-    if (body.honorCodeAccepted && body.digitalSignature) {
-      await db.insert(honorCodeSignatures).values({
-        userId: userId,
-        signature: body.digitalSignature,
-        timestamp: body.signatureTimestamp
-          ? new Date(body.signatureTimestamp)
-          : new Date(),
-        version: "1.0.0",
-        ipAddress:
-          request.headers.get("x-forwarded-for") ||
-          request.headers.get("x-real-ip") ||
-          "unknown",
-        userAgent: request.headers.get("user-agent") || "",
-        institution: body.institutionName || null,
-        isActive: true,
-        createdAt: new Date(),
-      });
-    }
-
-    // Update user record - mark that they've visited profile setup
+    // Update user record with new name if provided
+    const nameParts = body.fullName.trim().split(" ");
     await db
       .update(users)
       .set({
-        firstName: body.fullName?.split(" ")[0] || existingUser[0].firstName,
+        firstName: nameParts[0] || existingUser[0].firstName,
         lastName:
-          body.fullName?.split(" ").slice(1).join(" ") ||
-          existingUser[0].lastName ||
-          "",
-        isProfileComplete: true,
+          nameParts.slice(1).join(" ") || existingUser[0].lastName || "",
+        email: body.email?.toLowerCase().trim() || existingUser[0].email,
         updatedAt: now,
       })
       .where(eq(users.id, userId));
@@ -162,24 +135,21 @@ export async function POST(request: NextRequest) {
     // Return success response
     return NextResponse.json({
       success: true,
-      message: "Profile setup completed successfully",
-      user: {
-        id: userId,
-        name: body.fullName,
-        email: body.email,
-        institution: body.institutionName,
-        skills: Object.keys(body.programmingLanguages || {}).length,
-        goals: body.learningGoals?.length || 0,
+      message: "Profile updated successfully",
+      profile: {
+        fullName: profileData.fullName,
+        email: profileData.email,
+        university: profileData.university,
+        major: profileData.major,
+        year: profileData.year,
+        programmingLanguages: profileData.programmingLanguages,
+        experienceLevel: profileData.experienceLevel,
+        learningGoals: profileData.learningGoals,
+        institutionName: profileData.institutionName,
       },
-      nextSteps: [
-        "Complete your first assignment",
-        "Explore the AI assistant",
-        "Join a study group",
-        "Set up your learning preferences",
-      ],
     });
   } catch (error) {
-    console.error("Profile setup error:", error);
+    console.error("Profile update error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
