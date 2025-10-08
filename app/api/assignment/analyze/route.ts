@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "../../../../auth";
 import { db } from "@/shared/db";
 import {
   assignments,
@@ -9,28 +10,27 @@ import { eq } from "drizzle-orm";
 import { readFile } from "fs/promises";
 import Tesseract from "tesseract.js";
 import mammoth from "mammoth";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-interface AIAnalysisResult {
-  concepts: string[];
-  skills: string[];
-  difficultyLevel: number;
-  estimatedTimeHours: number;
-  prerequisites: string[];
-  learningGaps: string[];
-  milestones: {
-    title: string;
-    description: string;
-    points: number;
-    competencyRequirements: string[];
-  }[];
-}
+import { analyzeAssignmentWithGemini } from "@/shared/analysis-service";
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("Analysis API called");
+    const session = await auth();
+    console.log(
+      "Session:",
+      session?.user?.id ? "Authenticated" : "Not authenticated"
+    );
+
+    if (!session?.user?.id) {
+      console.log("Unauthorized access attempt");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { assignmentId } = await request.json();
+    console.log("Assignment ID:", assignmentId);
 
     if (!assignmentId) {
+      console.log("No assignment ID provided");
       return NextResponse.json(
         { error: "Assignment ID is required" },
         { status: 400 }
@@ -53,6 +53,11 @@ export async function POST(request: NextRequest) {
 
     const assignmentData = assignment[0];
 
+    // Verify ownership
+    if (assignmentData.userId !== session.user.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
     // Update status to processing
     await db
       .update(assignments)
@@ -68,21 +73,17 @@ export async function POST(request: NextRequest) {
       console.warn(`No text extracted for assignment ${assignmentId}`);
     }
 
-    // Perform AI analysis
-    let analysisResult: AIAnalysisResult;
+    // Perform AI analysis using Gemini
+    console.log("Starting Gemini analysis for assignment:", assignmentId);
+    console.log("Extracted text length:", extractedText.length);
 
+    let analysisResult;
     try {
-      analysisResult = await performAIAnalysis(
-        extractedText,
-        assignmentData.title
-      );
-    } catch (error) {
-      console.error("AI analysis error:", error);
-      // Fallback to basic analysis
-      analysisResult = await performBasicAnalysis(
-        extractedText,
-        assignmentData.title
-      );
+      analysisResult = await analyzeAssignmentWithGemini(extractedText);
+      console.log("Gemini analysis completed successfully:", analysisResult);
+    } catch (geminiError) {
+      console.error("Gemini analysis failed:", geminiError);
+      throw geminiError;
     }
 
     // Save analysis results
@@ -91,13 +92,13 @@ export async function POST(request: NextRequest) {
       .values({
         assignmentId,
         concepts: analysisResult.concepts,
-        languages: ["python", "javascript"], // Default languages
+        languages: analysisResult.languages,
         difficultyScore: Math.min(
-          Math.max(analysisResult.difficultyLevel, 1),
+          Math.max(analysisResult.difficulty, 1),
           10
         ) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
         prerequisites: analysisResult.prerequisites,
-        estimatedTimeHours: analysisResult.estimatedTimeHours.toString(),
+        estimatedTimeHours: analysisResult.estimated_hours.toString(),
       })
       .returning();
 
@@ -112,9 +113,9 @@ export async function POST(request: NextRequest) {
           milestoneOrder: i + 1,
           title: milestone.title,
           description: milestone.description,
-          competencyRequirement: milestone.competencyRequirements.join(", "),
-          pointsReward: milestone.points,
-          status: "locked", // Will be unlocked as user progresses
+          competencyRequirement: milestone.competency_check,
+          pointsReward: milestone.points_reward,
+          status: i === 0 ? "available" : "locked", // First milestone available, others locked
         })
         .returning();
       milestones.push(createdMilestone[0]);
@@ -133,11 +134,10 @@ export async function POST(request: NextRequest) {
       success: true,
       analysis: {
         concepts: analysisResult.concepts,
-        skills: analysisResult.skills,
-        difficultyLevel: analysisResult.difficultyLevel,
-        estimatedTimeHours: analysisResult.estimatedTimeHours,
+        languages: analysisResult.languages,
+        difficulty: analysisResult.difficulty,
+        estimated_hours: analysisResult.estimated_hours,
         prerequisites: analysisResult.prerequisites,
-        learningGaps: analysisResult.learningGaps,
       },
       pathway: {
         id: assignmentId, // Use assignment ID as pathway ID
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
           title: m.title,
           description: m.description,
           points: m.pointsReward,
-          competencyRequirements: m.competencyRequirement.split(", "),
+          competencyRequirements: m.competencyRequirement,
         })),
       },
       assignment: {
@@ -185,175 +185,4 @@ async function extractTextFromImage(filePath: string): Promise<string> {
     logger: (m) => console.log(m),
   });
   return text;
-}
-
-// AI Analysis functions
-async function performAIAnalysis(
-  text: string,
-  title: string
-): Promise<AIAnalysisResult> {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-
-  if (!geminiApiKey) {
-    throw new Error("Gemini API key not configured");
-  }
-
-  const genAI = new GoogleGenerativeAI(geminiApiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-  const prompt = `
-You are an expert programming instructor and learning pathway designer. Analyze assignments and create structured learning experiences.
-
-Analyze this programming assignment and provide a comprehensive learning pathway:
-
-Assignment Title: ${title}
-Assignment Content: ${text.substring(0, 4000)}...
-
-Please provide a JSON response with the following structure:
-{
-  "concepts": ["array", "loops", "functions", "object-oriented programming"],
-  "skills": ["problem solving", "debugging", "code organization"],
-  "difficultyLevel": 7,
-  "estimatedTimeHours": 12.5,
-  "prerequisites": ["basic programming", "data types", "control structures"],
-  "learningGaps": ["advanced algorithms", "design patterns"],
-  "milestones": [
-    {
-      "title": "Understand the Problem",
-      "description": "Analyze requirements and break down the problem",
-      "points": 5,
-      "competencyRequirements": ["problem analysis", "requirement understanding"]
-    },
-    {
-      "title": "Design the Solution",
-      "description": "Create algorithm and data structure design",
-      "points": 15,
-      "competencyRequirements": ["algorithm design", "data structure selection"]
-    },
-    {
-      "title": "Implement Core Logic",
-      "description": "Write the main functionality",
-      "points": 25,
-      "competencyRequirements": ["coding", "syntax", "logic implementation"]
-    },
-    {
-      "title": "Test and Debug",
-      "description": "Ensure code works correctly",
-      "points": 15,
-      "competencyRequirements": ["testing", "debugging", "error handling"]
-    },
-    {
-      "title": "Optimize and Document",
-      "description": "Improve performance and add documentation",
-      "points": 10,
-      "competencyRequirements": ["optimization", "documentation", "code review"]
-    }
-  ]
-}
-
-Focus on programming concepts, difficulty assessment (1-10 scale), and create 3-5 meaningful milestones with point values that total to 70 points.
-`;
-
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
-
-    return JSON.parse(content);
-  } catch (error) {
-    console.error("Gemini API error:", error);
-    throw new Error("Failed to get AI analysis from Gemini");
-  }
-}
-
-async function performBasicAnalysis(
-  text: string,
-  title: string
-): Promise<AIAnalysisResult> {
-  // Basic keyword-based analysis as fallback
-  const programmingKeywords = [
-    "function",
-    "class",
-    "method",
-    "variable",
-    "array",
-    "loop",
-    "condition",
-    "algorithm",
-    "data structure",
-    "recursion",
-    "iteration",
-    "object",
-    "inheritance",
-    "polymorphism",
-    "encapsulation",
-    "abstraction",
-  ];
-
-  const concepts = programmingKeywords.filter((keyword) =>
-    text.toLowerCase().includes(keyword.toLowerCase())
-  );
-
-  const difficultyKeywords = {
-    beginner: ["print", "input", "variable", "if", "for", "while"],
-    intermediate: ["function", "class", "array", "list", "dictionary"],
-    advanced: [
-      "algorithm",
-      "recursion",
-      "inheritance",
-      "polymorphism",
-      "design pattern",
-    ],
-  };
-
-  let difficultyLevel = 3; // Default to beginner
-  if (
-    concepts.some((concept) => difficultyKeywords.advanced.includes(concept))
-  ) {
-    difficultyLevel = 8;
-  } else if (
-    concepts.some((concept) =>
-      difficultyKeywords.intermediate.includes(concept)
-    )
-  ) {
-    difficultyLevel = 5;
-  }
-
-  return {
-    concepts: concepts.slice(0, 10), // Limit to 10 concepts
-    skills: ["problem solving", "coding", "debugging"],
-    difficultyLevel,
-    estimatedTimeHours: difficultyLevel * 1.5,
-    prerequisites: ["basic programming", "data types"],
-    learningGaps: ["advanced concepts"],
-    milestones: [
-      {
-        title: "Understand Requirements",
-        description: "Analyze the assignment requirements",
-        points: 10,
-        competencyRequirements: [
-          "reading comprehension",
-          "requirement analysis",
-        ],
-      },
-      {
-        title: "Plan Solution",
-        description: "Design the approach and algorithm",
-        points: 20,
-        competencyRequirements: ["algorithm design", "problem decomposition"],
-      },
-      {
-        title: "Implement Code",
-        description: "Write the programming solution",
-        points: 30,
-        competencyRequirements: ["coding", "syntax", "logic"],
-      },
-      {
-        title: "Test and Refine",
-        description: "Test the solution and fix issues",
-        points: 10,
-        competencyRequirements: ["testing", "debugging"],
-      },
-    ],
-  };
 }

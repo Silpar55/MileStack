@@ -37,114 +37,63 @@ export async function GET(
 
     const assignmentData = assignment[0];
 
-    // Get analysis results if available
-    const analysis = await db
-      .select()
-      .from(assignmentAnalysis)
-      .where(eq(assignmentAnalysis.assignmentId, assignmentId))
-      .limit(1);
+    // Get analysis if it exists
+    let analysis = null;
+    let pathway = null;
 
-    // Get learning milestones if available
-    const milestones = await db
-      .select()
-      .from(learningMilestones)
-      .where(eq(learningMilestones.assignmentId, assignmentId))
-      .orderBy(learningMilestones.milestoneOrder);
+    if (assignmentData.analysisStatus === "complete") {
+      const analysisResult = await db
+        .select()
+        .from(assignmentAnalysis)
+        .where(eq(assignmentAnalysis.assignmentId, assignmentId))
+        .limit(1);
 
-    const response = {
-      assignment: {
-        id: assignmentData.id,
-        title: assignmentData.title,
-        originalFilename: assignmentData.originalFilename,
-        extractedText: assignmentData.extractedText,
-        analysisStatus: assignmentData.analysisStatus,
-        estimatedDifficulty: assignmentData.estimatedDifficulty,
-        dueDate: assignmentData.dueDate,
-        courseName: assignmentData.courseName,
-        uploadTimestamp: assignmentData.uploadTimestamp,
-      },
-      analysis:
-        analysis.length > 0
-          ? {
-              assignmentId: analysis[0].assignmentId,
-              concepts: analysis[0].concepts,
-              languages: analysis[0].languages,
-              difficultyScore: analysis[0].difficultyScore,
-              prerequisites: analysis[0].prerequisites,
-              estimatedTimeHours: analysis[0].estimatedTimeHours,
-              analysisTimestamp: analysis[0].analysisTimestamp,
-            }
-          : null,
-      milestones: milestones.map((milestone) => ({
-        id: milestone.id,
-        title: milestone.title,
-        description: milestone.description,
-        milestoneOrder: milestone.milestoneOrder,
-        competencyRequirement: milestone.competencyRequirement,
-        pointsReward: milestone.pointsReward,
-        status: milestone.status,
-        createdAt: milestone.createdAt,
-      })),
-    };
+      if (analysisResult.length > 0) {
+        analysis = {
+          concepts: analysisResult[0].concepts,
+          languages: analysisResult[0].languages,
+          difficulty: analysisResult[0].difficultyScore,
+          estimated_hours: parseFloat(
+            analysisResult[0].estimatedTimeHours || "0"
+          ),
+          prerequisites: analysisResult[0].prerequisites,
+        };
 
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error("Assignment retrieval error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
+        // Get milestones
+        const milestones = await db
+          .select()
+          .from(learningMilestones)
+          .where(eq(learningMilestones.assignmentId, assignmentId))
+          .orderBy(learningMilestones.milestoneOrder);
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const assignmentId = params.id;
+        const totalPoints = milestones.reduce(
+          (sum, m) => sum + m.pointsReward,
+          0
+        );
 
-    if (!assignmentId) {
-      return NextResponse.json(
-        { error: "Assignment ID is required" },
-        { status: 400 }
-      );
+        pathway = {
+          id: assignmentId,
+          totalPoints,
+          milestones: milestones.map((m) => ({
+            title: m.title,
+            description: m.description,
+            points: m.pointsReward,
+            competencyRequirements: m.competencyRequirement,
+          })),
+        };
+      }
     }
-
-    // Check if assignment exists
-    const assignment = await db
-      .select()
-      .from(assignments)
-      .where(eq(assignments.id, assignmentId))
-      .limit(1);
-
-    if (assignment.length === 0) {
-      return NextResponse.json(
-        { error: "Assignment not found" },
-        { status: 404 }
-      );
-    }
-
-    // Delete associated data (cascade delete will handle most of this)
-    // Delete assignment analysis
-    await db
-      .delete(assignmentAnalysis)
-      .where(eq(assignmentAnalysis.assignmentId, assignmentId));
-
-    // Delete learning milestones (cascade delete will handle this)
-    // Delete assignment
-    await db.delete(assignments).where(eq(assignments.id, assignmentId));
-
-    // TODO: Delete physical file from filesystem
-    // const filePath = assignment[0].filePath;
-    // await unlink(filePath);
 
     return NextResponse.json({
-      success: true,
-      message: "Assignment deleted successfully",
+      id: assignmentData.id,
+      title: assignmentData.title,
+      originalFilename: assignmentData.originalFilename,
+      analysisStatus: assignmentData.analysisStatus,
+      analysis,
+      pathway,
     });
   } catch (error) {
-    console.error("Assignment deletion error:", error);
+    console.error("Error fetching assignment:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
