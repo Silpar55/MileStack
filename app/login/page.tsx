@@ -14,7 +14,22 @@ export default function LoginPage() {
   // Redirect if already authenticated and email is verified
   useEffect(() => {
     if (!isLoading && isAuthenticated && user?.isEmailVerified) {
-      router.push("/dashboard");
+      // Use replace to avoid back button issues and ensure redirect happens
+      router.replace("/dashboard");
+
+      // Fallback: if router doesn't work, use window.location
+      setTimeout(() => {
+        if (window.location.pathname === "/login") {
+          window.location.href = "/dashboard";
+        }
+      }, 100);
+
+      // Additional fallback: force reload if still on login page after 500ms
+      setTimeout(() => {
+        if (window.location.pathname === "/login") {
+          window.location.reload();
+        }
+      }, 500);
     }
   }, [isAuthenticated, isLoading, user, router]);
 
@@ -24,7 +39,7 @@ export default function LoginPage() {
       if (!isLoading && isAuthenticated && user && !user.isEmailVerified) {
         setIsCheckingVerification(true);
         // Redirect to verification screen with user's email
-        router.push(`/verify-email?email=${encodeURIComponent(user.email)}`);
+        router.replace(`/verify-email?email=${encodeURIComponent(user.email)}`);
       }
     };
 
@@ -32,8 +47,23 @@ export default function LoginPage() {
   }, [isAuthenticated, isLoading, user, router]);
 
   const handleAuth = () => {
-    // The middleware will handle the redirect to dashboard
-    router.push("/dashboard");
+    // Redirect to dashboard after successful authentication
+    // Use replace to avoid back button issues
+    router.replace("/dashboard");
+
+    // Fallback: if router doesn't work, use window.location
+    setTimeout(() => {
+      if (window.location.pathname === "/login") {
+        window.location.href = "/dashboard";
+      }
+    }, 100);
+
+    // Additional fallback: force reload if still on login page after 500ms
+    setTimeout(() => {
+      if (window.location.pathname === "/login") {
+        window.location.reload();
+      }
+    }, 500);
   };
 
   // Show loading while checking authentication status or verification

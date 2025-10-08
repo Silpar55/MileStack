@@ -152,7 +152,10 @@ export function AuthModal({ onAuth }: AuthModalProps) {
 
         const result = await login(formData.email, formData.password);
         if (result.success) {
-          onAuth();
+          // Wait a moment for auth state to update, then call onAuth to trigger redirect
+          setTimeout(() => {
+            onAuth();
+          }, 100);
         } else {
           // Special handling for unverified email
           if (result.code === "EMAIL_NOT_VERIFIED") {

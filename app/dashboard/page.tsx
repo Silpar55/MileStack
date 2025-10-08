@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Dashboard } from "@/components/Dashboard";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { ProfileSetupGuard } from "@/components/auth/ProfileSetupGuard";
 
 function DashboardPageContent() {
   const router = useRouter();
@@ -99,7 +100,9 @@ function DashboardPageContent() {
 export default function DashboardPage() {
   return (
     <ProtectedRoute>
-      <DashboardPageContent />
+      <ProfileSetupGuard>
+        <DashboardPageContent />
+      </ProfileSetupGuard>
     </ProtectedRoute>
   );
 }

@@ -87,7 +87,15 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   };
 
   const handleLogout = async () => {
-    await logout();
+    try {
+      await logout();
+      // Force redirect to login page after logout
+      window.location.href = "/login";
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Even if logout fails, redirect to login
+      window.location.href = "/login";
+    }
   };
 
   // Show loading state while auth is initializing
@@ -120,6 +128,8 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
           points={points}
           userName={`${user.firstName} ${user.lastName}`}
           userEmail={user.email}
+          userProfilePicture={user.profilePicture}
+          userOAuthAvatarUrl={user.oauthAvatarUrl}
           isAuthenticated={true}
         />
         <main>{children}</main>

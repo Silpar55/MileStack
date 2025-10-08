@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import Image from "next/image";
 import {
   Home,
   BookOpen,
@@ -30,6 +31,8 @@ interface NavigationProps {
   points: number;
   userName: string;
   userEmail: string;
+  userProfilePicture?: string | null;
+  userOAuthAvatarUrl?: string | null;
   isAuthenticated?: boolean;
 }
 
@@ -38,6 +41,8 @@ export function Navigation({
   points,
   userName,
   userEmail,
+  userProfilePicture,
+  userOAuthAvatarUrl,
   isAuthenticated = true,
 }: NavigationProps) {
   const router = useRouter();
@@ -136,7 +141,38 @@ export function Navigation({
                   className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
                   data-testid="button-profile-dropdown"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-blue-400 flex items-center justify-center text-white font-medium">
+                  {userProfilePicture || userOAuthAvatarUrl ? (
+                    <Image
+                      src={userProfilePicture || userOAuthAvatarUrl || ""}
+                      alt={`${userName}'s profile`}
+                      width={32}
+                      height={32}
+                      className="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm"
+                      onError={(e) => {
+                        // Fallback to initials if image fails to load
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = "none";
+                        const fallback =
+                          target.nextElementSibling as HTMLElement;
+                        if (fallback) fallback.style.display = "flex";
+                      }}
+                      onLoad={(e) => {
+                        // Hide initials fallback when image loads successfully
+                        const target = e.target as HTMLImageElement;
+                        const fallback =
+                          target.nextElementSibling as HTMLElement;
+                        if (fallback) fallback.style.display = "none";
+                      }}
+                      priority
+                    />
+                  ) : null}
+                  <div
+                    className={`w-8 h-8 rounded-full bg-gradient-to-r from-primary to-blue-400 flex items-center justify-center text-white font-medium ${
+                      userProfilePicture || userOAuthAvatarUrl
+                        ? "hidden"
+                        : "flex"
+                    }`}
+                  >
                     {userName.charAt(0)}
                   </div>
                 </button>
