@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,13 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Upload,
   FileText,
   Code,
@@ -19,10 +27,6 @@ import {
   AlertCircle,
   X,
   Loader2,
-  Brain,
-  Target,
-  Clock,
-  Zap,
   File,
   AlertTriangle,
 } from "lucide-react";
@@ -30,28 +34,15 @@ import {
 interface UploadedFile {
   file: File;
   id: string;
-  status: "uploading" | "uploaded" | "analyzing" | "analyzed" | "error";
+  status: "queued" | "uploading" | "uploaded" | "error";
   progress: number;
-  analysisResult?: any;
 }
 
-interface AnalysisResult {
-  concepts: string[];
-  skills: string[];
-  difficultyLevel: number;
-  estimatedTimeHours: number;
-  prerequisites: string[];
-  learningGaps: string[];
-  milestones: {
-    title: string;
-    description: string;
-    points: number;
-    competencyRequirements: string[];
-  }[];
-}
+// Removed AnalysisResult interface - no longer needed
 
 export default function AssignmentUploadPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -59,7 +50,17 @@ export default function AssignmentUploadPage() {
   const [assignmentData, setAssignmentData] = useState({
     title: "",
     description: "",
+    courseName: "",
+    dueDate: "",
+    difficultyEstimate: "",
   });
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, router]);
 
   const supportedFileTypes = [
     "application/pdf",
@@ -76,11 +77,15 @@ export default function AssignmentUploadPage() {
   const handleFiles = (files: File[]) => {
     const validFiles = files.filter((file) => {
       if (!supportedFileTypes.includes(file.type)) {
-        alert(`Unsupported file type: ${file.type}`);
+        alert(
+          `Unsupported file type: ${file.type}. Please use PDF, DOCX, TXT, JPG, or PNG.`
+        );
         return false;
       }
       if (file.size > 10 * 1024 * 1024) {
-        alert(`File too large: ${file.name} (max 10MB)`);
+        alert(
+          `File too large: ${file.name} (max 10MB). Please choose a smaller file.`
+        );
         return false;
       }
       return true;
@@ -89,7 +94,7 @@ export default function AssignmentUploadPage() {
     const newFiles: UploadedFile[] = validFiles.map((file) => ({
       file,
       id: Math.random().toString(36).substr(2, 9),
-      status: "uploading",
+      status: "queued",
       progress: 0,
     }));
 
@@ -122,6 +127,8 @@ export default function AssignmentUploadPage() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       handleFiles(Array.from(e.target.files));
+      // Reset the input value so the same file can be uploaded again
+      e.target.value = "";
     }
   };
 
@@ -130,25 +137,65 @@ export default function AssignmentUploadPage() {
   };
 
   const uploadFile = async (fileData: UploadedFile) => {
+    if (!session?.user?.id) {
+      console.error("No user session found");
+      setUploadedFiles((prev) =>
+        prev.map((file) =>
+          file.id === fileData.id ? { ...file, status: "error" } : file
+        )
+      );
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", fileData.file);
-    formData.append("userId", "user_123"); // TODO: Get from auth context
+    formData.append("userId", session.user.id);
     formData.append("title", assignmentData.title || fileData.file.name);
     formData.append("description", assignmentData.description);
+    formData.append("courseName", assignmentData.courseName);
+    formData.append("dueDate", assignmentData.dueDate);
+    formData.append("difficultyEstimate", assignmentData.difficultyEstimate);
 
     try {
+      // Update status to uploading and simulate progress updates
+      setUploadedFiles((prev) =>
+        prev.map((file) =>
+          file.id === fileData.id ? { ...file, status: "uploading" } : file
+        )
+      );
+
+      const progressInterval = setInterval(() => {
+        setUploadedFiles((prev) =>
+          prev.map((file) => {
+            if (file.id === fileData.id && file.status === "uploading") {
+              const newProgress = Math.min(
+                file.progress + Math.random() * 20,
+                90
+              );
+              return { ...file, progress: newProgress };
+            }
+            return file;
+          })
+        );
+      }, 200);
+
       const response = await fetch("/api/assignment/upload", {
         method: "POST",
         body: formData,
       });
 
+      clearInterval(progressInterval);
+
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || `Upload failed: ${response.statusText}`
+        );
       }
 
       const result = await response.json();
 
-      // Update file status
+      // Update file status to complete
       setUploadedFiles((prev) =>
         prev.map((file) =>
           file.id === fileData.id
@@ -156,16 +203,10 @@ export default function AssignmentUploadPage() {
                 ...file,
                 status: "uploaded",
                 progress: 100,
-                analysisResult: result,
               }
             : file
         )
       );
-
-      // Start analysis
-      setTimeout(() => {
-        analyzeAssignment(result.assignment.id, fileData.id);
-      }, 2000);
     } catch (error) {
       console.error("Upload error:", error);
       setUploadedFiles((prev) =>
@@ -176,52 +217,18 @@ export default function AssignmentUploadPage() {
     }
   };
 
-  const analyzeAssignment = async (assignmentId: string, fileId: string) => {
-    setUploadedFiles((prev) =>
-      prev.map((file) =>
-        file.id === fileId ? { ...file, status: "analyzing" } : file
-      )
-    );
-
-    try {
-      const response = await fetch("/api/assignment/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignmentId }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Analysis failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-
-      setUploadedFiles((prev) =>
-        prev.map((file) =>
-          file.id === fileId
-            ? {
-                ...file,
-                status: "analyzed",
-                analysisResult: result,
-              }
-            : file
-        )
-      );
-    } catch (error) {
-      console.error("Analysis error:", error);
-      setUploadedFiles((prev) =>
-        prev.map((file) =>
-          file.id === fileId ? { ...file, status: "error" } : file
-        )
-      );
-    }
-  };
+  // Removed analyzeAssignment function - no longer needed
 
   const handleUploadAll = async () => {
+    if (!assignmentData.title.trim()) {
+      alert("Please enter an assignment title before uploading.");
+      return;
+    }
+
     setIsUploading(true);
 
     for (const fileData of uploadedFiles) {
-      if (fileData.status === "uploading") {
+      if (fileData.status === "queued") {
         await uploadFile(fileData);
       }
     }
@@ -230,23 +237,25 @@ export default function AssignmentUploadPage() {
   };
 
   const getFileIcon = (mimeType: string) => {
-    if (mimeType.startsWith("image/")) return <Image className="w-5 h-5" aria-label="Image file" />;
-    if (mimeType === "application/pdf") return <FileText className="w-5 h-5" aria-label="Document file" />;
-    if (mimeType.includes("word")) return <FileText className="w-5 h-5" aria-label="Document file" />;
-    if (mimeType === "text/plain") return <Code className="w-5 h-5" aria-label="Code file" />;
+    if (mimeType.startsWith("image/"))
+      return <Image className="w-5 h-5" aria-label="Image file" />;
+    if (mimeType === "application/pdf")
+      return <FileText className="w-5 h-5" aria-label="Document file" />;
+    if (mimeType.includes("word"))
+      return <FileText className="w-5 h-5" aria-label="Document file" />;
+    if (mimeType === "text/plain")
+      return <Code className="w-5 h-5" aria-label="Code file" />;
     return <File className="w-5 h-5" aria-label="File" />;
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case "queued":
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
       case "uploading":
         return <Loader2 className="w-4 h-4 animate-spin" />;
       case "uploaded":
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case "analyzing":
-        return <Brain className="w-4 h-4 animate-pulse text-blue-500" />;
-      case "analyzed":
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
+        return <CheckCircle className="w-4 h-4 text-blue-500" />;
       case "error":
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       default:
@@ -256,32 +265,44 @@ export default function AssignmentUploadPage() {
 
   const getStatusText = (status: string) => {
     switch (status) {
+      case "queued":
+        return "Ready to Upload";
       case "uploading":
         return "Uploading...";
       case "uploaded":
-        return "Uploaded";
-      case "analyzing":
-        return "AI Analysis in Progress";
-      case "analyzed":
-        return "Analysis Complete";
+        return "Upload Complete";
       case "error":
-        return "Error";
+        return "Upload Failed";
       default:
         return "";
     }
   };
+
+  // Show loading if checking authentication
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (status === "unauthenticated") {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-2">
-            Intelligent Assignment Analysis
-          </h1>
+          <h1 className="text-3xl font-bold mb-2">Assignment Upload</h1>
           <p className="text-muted-foreground">
-            Upload your programming assignments and get AI-powered learning
-            pathways
+            Upload your programming assignments for processing and analysis
           </p>
         </div>
 
@@ -304,23 +325,80 @@ export default function AssignmentUploadPage() {
                     })
                   }
                   placeholder="Enter assignment title"
+                  required
                 />
               </div>
               <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={assignmentData.description}
+                <Label htmlFor="courseName">Course Name</Label>
+                <Input
+                  id="courseName"
+                  value={assignmentData.courseName}
                   onChange={(e) =>
                     setAssignmentData({
                       ...assignmentData,
-                      description: e.target.value,
+                      courseName: e.target.value,
                     })
                   }
-                  placeholder="Optional description"
-                  rows={3}
+                  placeholder="e.g., CS 101, Data Structures"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="dueDate">Due Date</Label>
+                <Input
+                  id="dueDate"
+                  type="date"
+                  value={assignmentData.dueDate}
+                  onChange={(e) =>
+                    setAssignmentData({
+                      ...assignmentData,
+                      dueDate: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="difficultyEstimate">Difficulty Estimate</Label>
+                <Select
+                  value={assignmentData.difficultyEstimate}
+                  onValueChange={(value) =>
+                    setAssignmentData({
+                      ...assignmentData,
+                      difficultyEstimate: value,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select difficulty level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="beginner">Beginner (1-3)</SelectItem>
+                    <SelectItem value="intermediate">
+                      Intermediate (4-6)
+                    </SelectItem>
+                    <SelectItem value="advanced">Advanced (7-8)</SelectItem>
+                    <SelectItem value="expert">Expert (9-10)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={assignmentData.description}
+                onChange={(e) =>
+                  setAssignmentData({
+                    ...assignmentData,
+                    description: e.target.value,
+                  })
+                }
+                placeholder="Optional description of the assignment"
+                rows={3}
+              />
             </div>
           </CardContent>
         </Card>
@@ -426,7 +504,11 @@ export default function AssignmentUploadPage() {
                 </Button>
                 <Button
                   onClick={handleUploadAll}
-                  disabled={isUploading || uploadedFiles.length === 0}
+                  disabled={
+                    isUploading ||
+                    uploadedFiles.length === 0 ||
+                    !assignmentData.title.trim()
+                  }
                 >
                   {isUploading ? (
                     <>
@@ -436,7 +518,7 @@ export default function AssignmentUploadPage() {
                   ) : (
                     <>
                       <Upload className="w-4 h-4 mr-2" />
-                      Upload & Analyze
+                      Upload Files
                     </>
                   )}
                 </Button>
@@ -445,151 +527,21 @@ export default function AssignmentUploadPage() {
           </Card>
         )}
 
-        {/* Analysis Results */}
-        {uploadedFiles.some(
-          (file) => file.status === "analyzed" && file.analysisResult
-        ) && (
+        {/* Upload Complete Message */}
+        {uploadedFiles.some((file) => file.status === "uploaded") && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Brain className="w-5 h-5 mr-2" />
-                AI Analysis Results
+                <CheckCircle className="w-5 h-5 mr-2 text-green-500" />
+                Upload Complete
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {uploadedFiles
-                .filter(
-                  (file) => file.status === "analyzed" && file.analysisResult
-                )
-                .map((fileData) => {
-                  const analysis = fileData.analysisResult.analysis;
-                  const pathway = fileData.analysisResult.pathway;
-
-                  return (
-                    <div key={fileData.id} className="space-y-6">
-                      {/* Analysis Summary */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="flex items-center space-x-2">
-                          <Target className="w-4 h-4 text-blue-500" />
-                          <span className="text-sm font-medium">
-                            Difficulty:
-                          </span>
-                          <Badge variant="outline">
-                            {analysis.difficultyLevel}/10
-                          </Badge>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Clock className="w-4 h-4 text-green-500" />
-                          <span className="text-sm font-medium">
-                            Est. Time:
-                          </span>
-                          <span className="text-sm">
-                            {analysis.estimatedTimeHours}h
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Zap className="w-4 h-4 text-purple-500" />
-                          <span className="text-sm font-medium">Points:</span>
-                          <span className="text-sm">{pathway.totalPoints}</span>
-                        </div>
-                      </div>
-
-                      {/* Concepts and Skills */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <h4 className="font-semibold mb-2">
-                            Programming Concepts
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {analysis.concepts.map(
-                              (concept: string, index: number) => (
-                                <Badge key={index} variant="secondary">
-                                  {concept}
-                                </Badge>
-                              )
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <h4 className="font-semibold mb-2">
-                            Required Skills
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {analysis.skills.map(
-                              (skill: string, index: number) => (
-                                <Badge key={index} variant="outline">
-                                  {skill}
-                                </Badge>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Learning Pathway */}
-                      <div>
-                        <h4 className="font-semibold mb-4">Learning Pathway</h4>
-                        <div className="space-y-3">
-                          {pathway.milestones.map(
-                            (milestone: any, index: number) => (
-                              <div
-                                key={index}
-                                className="flex items-start space-x-3 p-3 border rounded-lg"
-                              >
-                                <div className="flex-shrink-0 w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-medium">
-                                  {index + 1}
-                                </div>
-                                <div className="flex-1">
-                                  <h5 className="font-medium">
-                                    {milestone.title}
-                                  </h5>
-                                  <p className="text-sm text-muted-foreground mb-2">
-                                    {milestone.description}
-                                  </p>
-                                  <div className="flex items-center space-x-4 text-sm">
-                                    <span className="flex items-center space-x-1">
-                                      <Zap className="w-3 h-3" />
-                                      <span>{milestone.points} points</span>
-                                    </span>
-                                    <span className="flex items-center space-x-1">
-                                      <Target className="w-3 h-3" />
-                                      <span>
-                                        {
-                                          milestone.competencyRequirements
-                                            .length
-                                        }{" "}
-                                        competencies
-                                      </span>
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex justify-end space-x-2">
-                        <Button
-                          variant="outline"
-                          onClick={() =>
-                            router.push(
-                              `/assignment/${fileData.analysisResult.assignment.id}`
-                            )
-                          }
-                        >
-                          View Details
-                        </Button>
-                        <Button
-                          onClick={() => router.push(`/pathway/${pathway.id}`)}
-                        >
-                          Start Learning Path
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+              <p className="text-muted-foreground">
+                Your assignment files have been successfully uploaded and
+                processed. The files are now ready for further analysis and
+                processing.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -599,8 +551,8 @@ export default function AssignmentUploadPage() {
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              Some files failed to upload or analyze. Please try again or
-              contact support.
+              Some files failed to upload. Please check the file format and
+              size, then try again.
             </AlertDescription>
           </Alert>
         )}

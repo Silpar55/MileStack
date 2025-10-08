@@ -59,23 +59,13 @@ export async function POST(request: NextRequest) {
       .set({ analysisStatus: "processing" })
       .where(eq(assignments.id, assignmentId));
 
-    // Extract text based on file type
-    let extractedText = "";
+    // Use the extracted text from the assignment
+    let extractedText = assignmentData.extractedText || "";
 
-    try {
-      // For now, use the extracted text from the assignment if available
-      extractedText = assignmentData.extractedText || "No text available";
-    } catch (error) {
-      console.error("Text extraction error:", error);
-      await db
-        .update(assignments)
-        .set({ analysisStatus: "failed" })
-        .where(eq(assignments.id, assignmentId));
-
-      return NextResponse.json(
-        { error: "Failed to extract text from file" },
-        { status: 500 }
-      );
+    // If no text was extracted, provide a fallback message
+    if (!extractedText || extractedText.trim().length === 0) {
+      extractedText = `Assignment: ${assignmentData.title}\n\nNo readable text could be extracted from the uploaded file. Please ensure the file contains text and try uploading again.`;
+      console.warn(`No text extracted for assignment ${assignmentId}`);
     }
 
     // Perform AI analysis
@@ -136,25 +126,35 @@ export async function POST(request: NextRequest) {
       .set({ analysisStatus: "complete" })
       .where(eq(assignments.id, assignmentId));
 
+    // Calculate total points from milestones
+    const totalPoints = milestones.reduce((sum, m) => sum + m.pointsReward, 0);
+
     return NextResponse.json({
       success: true,
       analysis: {
-        assignmentId: analysis[0].assignmentId,
         concepts: analysisResult.concepts,
-        languages: analysis[0].languages,
-        difficultyScore: analysisResult.difficultyLevel,
-        prerequisites: analysisResult.prerequisites,
+        skills: analysisResult.skills,
+        difficultyLevel: analysisResult.difficultyLevel,
         estimatedTimeHours: analysisResult.estimatedTimeHours,
+        prerequisites: analysisResult.prerequisites,
+        learningGaps: analysisResult.learningGaps,
       },
-      milestones: milestones.map((m) => ({
-        id: m.id,
-        title: m.title,
-        description: m.description,
-        milestoneOrder: m.milestoneOrder,
-        competencyRequirement: m.competencyRequirement,
-        pointsReward: m.pointsReward,
-        status: m.status,
-      })),
+      pathway: {
+        id: assignmentId, // Use assignment ID as pathway ID
+        totalPoints,
+        milestones: milestones.map((m) => ({
+          title: m.title,
+          description: m.description,
+          points: m.pointsReward,
+          competencyRequirements: m.competencyRequirement.split(", "),
+        })),
+      },
+      assignment: {
+        id: assignmentId,
+        title: assignmentData.title,
+        originalFilename: assignmentData.originalFilename,
+        analysisStatus: "complete",
+      },
     });
   } catch (error) {
     console.error("Assignment analysis error:", error);

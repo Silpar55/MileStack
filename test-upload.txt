@@ -1,0 +1,26 @@
+Test Assignment
+
+This is a sample programming assignment for testing the upload functionality.
+
+Requirements:
+1. Create a function that calculates the factorial of a number
+2. Implement error handling for invalid inputs
+3. Write unit tests for the function
+4. Document the code with comments
+
+The function should:
+- Accept a positive integer as input
+- Return the factorial of that number
+- Handle edge cases like 0 and 1
+- Throw an error for negative numbers
+
+Example:
+factorial(5) should return 120
+factorial(0) should return 1
+factorial(-1) should throw an error
+
+This assignment tests understanding of:
+- Functions and recursion
+- Error handling
+- Unit testing
+- Code documentation
