@@ -8,6 +8,20 @@
       "when": 1759798298967,
       "tag": "0000_pretty_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1759860979411,
+      "tag": "0001_dry_husk",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1759869114797,
+      "tag": "0002_late_deadpool",
+      "breakpoints": true
     }
   ]
 }

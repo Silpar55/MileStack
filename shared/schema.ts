@@ -36,6 +36,10 @@ export const users = pgTable("users", {
   ferpaConsent: boolean("ferpa_consent").default(false).notNull(),
   ferpaConsentAt: timestamp("ferpa_consent_at"),
   profileData: jsonb("profile_data"), // Additional profile information
+  profilePicture: text("profile_picture"), // URL or path to profile picture
+  profilePictureProvider: varchar("profile_picture_provider", { length: 20 }), // 'local', 'cloudinary', 'oauth'
+  oauthAvatarUrl: text("oauth_avatar_url"), // Original OAuth avatar URL
+  isProfileComplete: boolean("is_profile_complete").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -555,6 +559,52 @@ export const fraudDetectionLogs = pgTable("fraud_detection_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// User Profiles table for extended profile information
+export const userProfiles = pgTable("user_profiles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" })
+    .unique(),
+  fullName: varchar("full_name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  university: varchar("university", { length: 255 }),
+  major: varchar("major", { length: 255 }).notNull(),
+  year: varchar("year", { length: 50 }).notNull(),
+  programmingLanguages: jsonb("programming_languages").default({}),
+  experienceLevel: varchar("experience_level", { length: 50 }).default(
+    "beginner"
+  ),
+  learningGoals: jsonb("learning_goals").default([]),
+  institutionId: varchar("institution_id", { length: 100 }),
+  institutionName: varchar("institution_name", { length: 255 }),
+  dataUsageConsent: boolean("data_usage_consent").default(false).notNull(),
+  marketingConsent: boolean("marketing_consent").default(false).notNull(),
+  researchParticipation: boolean("research_participation")
+    .default(false)
+    .notNull(),
+  isProfileComplete: boolean("is_profile_complete").default(false).notNull(),
+  profileCompletedAt: timestamp("profile_completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Honor Code Signatures table
+export const honorCodeSignatures = pgTable("honor_code_signatures", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  signature: text("signature").notNull(),
+  timestamp: timestamp("timestamp").notNull(),
+  version: varchar("version", { length: 20 }).notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  institution: varchar("institution", { length: 255 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Points and Achievements Relations
 export const userPointsRelations = relations(userPoints, ({ one }) => ({
   user: one(users, {
@@ -593,6 +643,23 @@ export const fraudDetectionLogsRelations = relations(
     }),
     reviewer: one(users, {
       fields: [fraudDetectionLogs.reviewedBy],
+      references: [users.id],
+    }),
+  })
+);
+
+export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [userProfiles.userId],
+    references: [users.id],
+  }),
+}));
+
+export const honorCodeSignaturesRelations = relations(
+  honorCodeSignatures,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [honorCodeSignatures.userId],
       references: [users.id],
     }),
   })
