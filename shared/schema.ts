@@ -201,22 +201,6 @@ export const challengeRatings = pgTable("challenge_ratings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const leaderboards = pgTable("leaderboards", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  category: varchar("category", { length: 50 }), // 'overall', 'data-structures', 'algorithms', etc.
-  points: integer("points").default(0).notNull(),
-  rank: integer("rank"),
-  challengesSolved: integer("challenges_solved").default(0),
-  averageTime: integer("average_time"), // Average solve time in minutes
-  streak: integer("streak").default(0), // Current solving streak
-  longestStreak: integer("longest_streak").default(0),
-  lastSolvedAt: timestamp("last_solved_at"),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
 export const userProgress = pgTable("user_progress", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -278,13 +262,6 @@ export const challengeRatingsRelations = relations(
     }),
   })
 );
-
-export const leaderboardsRelations = relations(leaderboards, ({ one }) => ({
-  user: one(users, {
-    fields: [leaderboards.userId],
-    references: [users.id],
-  }),
-}));
 
 export const userProgressRelations = relations(userProgress, ({ one }) => ({
   user: one(users, {
@@ -660,6 +637,31 @@ export const honorCodeSignaturesRelations = relations(
   ({ one }) => ({
     user: one(users, {
       fields: [honorCodeSignatures.userId],
+      references: [users.id],
+    }),
+  })
+);
+
+// AI Assistance System Table - works across all learning systems
+export const aiAssistanceLog = pgTable("ai_assistance_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  contextType: varchar("context_type", { length: 20 }).notNull(), // 'assignment', 'challenge', 'learning_path'
+  contextId: uuid("context_id").notNull(), // ID of assignment, challenge, or learning path
+  assistanceType: varchar("assistance_type", { length: 20 }).notNull(), // 'hint', 'pseudocode', 'review', 'copilot'
+  pointsSpent: integer("points_spent").notNull(),
+  questionAsked: text("question_asked"),
+  aiResponse: text("ai_response"),
+  usageTimestamp: timestamp("usage_timestamp").defaultNow().notNull(),
+});
+
+export const aiAssistanceLogRelations = relations(
+  aiAssistanceLog,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [aiAssistanceLog.userId],
       references: [users.id],
     }),
   })
