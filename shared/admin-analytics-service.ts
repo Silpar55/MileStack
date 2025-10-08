@@ -220,13 +220,13 @@ export class AdminAnalyticsService {
     const pendingAssignments = await db
       .select()
       .from(assignments)
-      .where(eq(assignments.status, "pending"));
+      .where(eq(assignments.analysisStatus, "pending"));
 
-    // Get approved assignments
-    const approvedAssignments = await db
+    // Get completed assignments
+    const completedAssignments = await db
       .select()
       .from(assignments)
-      .where(eq(assignments.status, "approved"));
+      .where(eq(assignments.analysisStatus, "complete"));
 
     return {
       challenges: {
@@ -254,21 +254,20 @@ export class AdminAnalyticsService {
         pending: pendingAssignments.map((assignment) => ({
           id: assignment.id,
           title: assignment.title,
-          description: assignment.description || "No description",
-          difficulty: "unknown",
+          description: assignment.originalFilename || "No filename",
+          difficulty: assignment.estimatedDifficulty?.toString() || "unknown",
           submittedBy: assignment.userId || "Unknown",
-          submittedAt: assignment.createdAt,
-          reviewStatus: assignment.status as
-            | "pending"
-            | "approved"
-            | "rejected",
+          submittedAt: assignment.uploadTimestamp,
+          reviewStatus: (assignment.analysisStatus === "complete"
+            ? "approved"
+            : "pending") as "pending" | "approved" | "rejected",
         })),
-        approved: approvedAssignments.map((assignment) => ({
+        approved: completedAssignments.map((assignment) => ({
           id: assignment.id,
           title: assignment.title,
           completionRate: 0,
           averageScore: 0,
-          lastUpdated: assignment.updatedAt,
+          lastUpdated: assignment.uploadTimestamp,
         })),
       },
     };
