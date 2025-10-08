@@ -63,3 +63,6 @@ vite.config.ts.*
 # Temporary files
 *.tmp
 *.temp
+# User uploaded files - should not be committed
+public/uploads/avatars/
+public/uploads/oauth-avatars/
