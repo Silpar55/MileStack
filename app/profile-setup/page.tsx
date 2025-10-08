@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,16 +65,21 @@ interface FormData {
 
 export default function ProfileSetupPage() {
   const router = useRouter();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [institutionSearch, setInstitutionSearch] = useState("");
   const [institutionResults, setInstitutionResults] = useState([]);
   const [showHonorCodeModal, setShowHonorCodeModal] = useState(false);
   const [showWhyThisWorks, setShowWhyThisWorks] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
-    fullName: "",
-    email: "",
+    fullName:
+      user?.firstName && user?.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : "",
+    email: user?.email || "",
     university: "",
     major: "",
     year: "",
@@ -90,6 +96,38 @@ export default function ProfileSetupPage() {
     researchParticipation: false,
   });
 
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, authLoading, router]);
+
+  // Update form data when user data changes (for OAuth users)
+  useEffect(() => {
+    if (user && !formData.fullName && !formData.email) {
+      setFormData((prev) => ({
+        ...prev,
+        fullName:
+          user.firstName && user.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : prev.fullName,
+        email: user.email || prev.email,
+      }));
+    }
+  }, [user, formData.fullName, formData.email]);
+
+  // Pre-populate with user data from auth
+  useEffect(() => {
+    if (user) {
+      setFormData((prev) => ({
+        ...prev,
+        fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        email: user.email || "",
+      }));
+    }
+  }, [user]);
+
   // Form persistence in localStorage
   useEffect(() => {
     const savedData = localStorage.getItem("profileSetupData");
@@ -102,7 +140,7 @@ export default function ProfileSetupPage() {
     localStorage.setItem("profileSetupData", JSON.stringify(formData));
   }, [formData]);
 
-  const totalSteps = 6;
+  const totalSteps = 5; // Reduced from 6 since we removed personal info step
   const progress = (step / totalSteps) * 100;
 
   const programmingLanguages = [
@@ -152,6 +190,30 @@ export default function ProfileSetupPage() {
   ];
 
   const handleNext = () => {
+    // Clear any existing error messages
+    setErrorMessage(null);
+
+    // Validate mandatory fields before proceeding
+    if (step === 4 && !formData.honorCodeAccepted) {
+      setErrorMessage(
+        "Please accept the Academic Integrity Honor Code to continue."
+      );
+      return;
+    }
+
+    if (step === 5 && !formData.dataUsageConsent) {
+      setErrorMessage("Please accept the Data Usage Consent to continue.");
+      return;
+    }
+
+    if (step < totalSteps) {
+      setStep(step + 1);
+    } else {
+      handleSubmit();
+    }
+  };
+
+  const handleSkip = () => {
     if (step < totalSteps) {
       setStep(step + 1);
     } else {
@@ -165,22 +227,70 @@ export default function ProfileSetupPage() {
     }
   };
 
+  const validateForm = () => {
+    // Check mandatory fields
+    if (!formData.dataUsageConsent) {
+      setErrorMessage("Please accept the Data Usage Consent to continue.");
+      return false;
+    }
+
+    if (!formData.honorCodeAccepted) {
+      setErrorMessage(
+        "Please accept the Academic Integrity Honor Code to continue."
+      );
+      return false;
+    }
+
+    setErrorMessage(null);
+    return true;
+  };
+
   const handleSubmit = async () => {
+    // Validate mandatory fields
+    if (!validateForm()) {
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // Get auth token from localStorage or session (for manual login users)
+      const token =
+        localStorage.getItem("accessToken") ||
+        sessionStorage.getItem("accessToken");
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+
+      // Add Authorization header only if we have a JWT token (for manual login users)
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       // Submit to API
       const response = await fetch("/api/profile/setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
+        credentials: "include", // Include NextAuth session cookies for OAuth users
         body: JSON.stringify(formData),
       });
 
       if (response.ok) {
+        const result = await response.json();
         localStorage.removeItem("profileSetupData");
+
+        // Show success message
+        alert(
+          `Profile setup completed successfully! Welcome, ${result.user.name}!`
+        );
         router.push("/dashboard");
+      } else {
+        const errorData = await response.json();
+        alert(`Profile setup failed: ${errorData.error}`);
       }
     } catch (error) {
       console.error("Profile setup error:", error);
+      alert("An unexpected error occurred. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -241,16 +351,32 @@ export default function ProfileSetupPage() {
     const signature = prompt(
       "Please type your full name to digitally sign the honor code:"
     );
-    if (signature) {
+    if (signature && signature.trim().length > 0) {
       setFormData({
         ...formData,
         honorCodeAccepted: true,
-        digitalSignature: signature,
+        digitalSignature: signature.trim(),
         signatureTimestamp: new Date().toISOString(),
       });
       setShowHonorCodeModal(false);
+    } else if (signature !== null) {
+      alert("Please enter a valid signature.");
     }
   };
+
+  // Show loading state while auth is loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-6 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading your profile...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -259,104 +385,57 @@ export default function ProfileSetupPage() {
           <div className="flex justify-center mb-4">
             <MilestackLogo size={60} />
           </div>
-          <CardTitle className="text-2xl">Complete Your Profile</CardTitle>
+          <CardTitle className="text-2xl">
+            Welcome{user ? `, ${user.firstName || "there"}` : ""}! 👋
+          </CardTitle>
           <p className="text-muted-foreground">
-            Help us personalize your learning experience and establish your
-            academic integrity commitment
+            Let's personalize your learning experience and set up your academic
+            profile. All steps are optional - complete what you'd like!
           </p>
 
           {/* Progress Indicator */}
           <div className="mt-6">
             <div className="flex justify-between text-sm text-muted-foreground mb-2">
               <span>
-                Step {step} of {totalSteps}
+                Step {step} of {totalSteps} (All Optional)
               </span>
-              <span>{Math.round(progress)}% Complete</span>
+              <span>{Math.round(progress)}% Progress</span>
             </div>
             <Progress value={progress} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-1 text-center">
+              💡 You can skip any step and complete your profile later
+            </p>
           </div>
         </CardHeader>
 
         <CardContent>
           <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-            {/* Step 1: Personal Information */}
-            {step === 1 && (
-              <div className="space-y-6">
-                <div className="flex items-center mb-4">
-                  <User className="w-5 h-5 mr-2 text-primary" />
-                  <h3 className="text-lg font-semibold">
-                    Personal Information
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="fullName">Full Name *</Label>
-                    <Input
-                      id="fullName"
-                      value={formData.fullName}
-                      onChange={(e) =>
-                        setFormData({ ...formData, fullName: e.target.value })
-                      }
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="email">Email Address *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) =>
-                        setFormData({ ...formData, email: e.target.value })
-                      }
-                      placeholder="your.email@university.edu"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="major">Major/Field of Study *</Label>
-                    <Input
-                      id="major"
-                      value={formData.major}
-                      onChange={(e) =>
-                        setFormData({ ...formData, major: e.target.value })
-                      }
-                      placeholder="e.g., Computer Science, Engineering"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="year">Academic Year *</Label>
-                    <Select
-                      value={formData.year}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, year: value })
-                      }
+            {/* Error Message Display */}
+            {errorMessage && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <svg
+                      className="h-5 w-5 text-red-400"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select your year" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="freshman">Freshman</SelectItem>
-                        <SelectItem value="sophomore">Sophomore</SelectItem>
-                        <SelectItem value="junior">Junior</SelectItem>
-                        <SelectItem value="senior">Senior</SelectItem>
-                        <SelectItem value="graduate">Graduate</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-800">{errorMessage}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Step 2: Skills Assessment */}
-            {step === 2 && (
+            {/* Step 1: Skills Assessment */}
+            {step === 1 && (
               <div className="space-y-6">
                 <div className="flex items-center mb-4">
                   <Code className="w-5 h-5 mr-2 text-primary" />
@@ -422,8 +501,8 @@ export default function ProfileSetupPage() {
               </div>
             )}
 
-            {/* Step 3: Institution Selection */}
-            {step === 3 && (
+            {/* Step 2: Institution Selection */}
+            {step === 2 && (
               <div className="space-y-6">
                 <div className="flex items-center mb-4">
                   <Building className="w-5 h-5 mr-2 text-primary" />
@@ -472,8 +551,8 @@ export default function ProfileSetupPage() {
               </div>
             )}
 
-            {/* Step 4: Learning Goals */}
-            {step === 4 && (
+            {/* Step 3: Learning Goals */}
+            {step === 3 && (
               <div className="space-y-6">
                 <div className="flex items-center mb-4">
                   <Target className="w-5 h-5 mr-2 text-primary" />
@@ -506,8 +585,8 @@ export default function ProfileSetupPage() {
               </div>
             )}
 
-            {/* Step 5: Academic Integrity */}
-            {step === 5 && (
+            {/* Step 4: Academic Integrity */}
+            {step === 4 && (
               <div className="space-y-6">
                 <div className="flex items-center mb-4">
                   <Shield className="w-5 h-5 mr-2 text-primary" />
@@ -605,8 +684,8 @@ export default function ProfileSetupPage() {
               </div>
             )}
 
-            {/* Step 6: Privacy & Consent */}
-            {step === 6 && (
+            {/* Step 5: Privacy & Consent */}
+            {step === 5 && (
               <div className="space-y-6">
                 <div className="flex items-center mb-4">
                   <Award className="w-5 h-5 mr-2 text-primary" />
@@ -696,23 +775,30 @@ export default function ProfileSetupPage() {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back
               </Button>
-              <Button
-                type="button"
-                onClick={handleNext}
-                disabled={
-                  isLoading ||
-                  (step === 5 && !formData.honorCodeAccepted) ||
-                  (step === 6 && !formData.dataUsageConsent)
-                }
-                className="bg-gradient-to-r from-primary to-blue-400"
-              >
-                {isLoading
-                  ? "Saving..."
-                  : step === totalSteps
-                  ? "Complete Setup"
-                  : "Next"}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleSkip}
+                  disabled={isLoading}
+                  className="text-muted-foreground"
+                >
+                  Skip Step
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={isLoading}
+                  className="bg-gradient-to-r from-primary to-blue-400"
+                >
+                  {isLoading
+                    ? "Saving..."
+                    : step === totalSteps
+                    ? "Complete Setup"
+                    : "Continue"}
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
             </div>
           </form>
         </CardContent>
