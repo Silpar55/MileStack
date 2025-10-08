@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/shared/middleware";
 
-export const POST = withAuth(async (request: NextRequest, userId: string) => {
+export const POST = withAuth(async (request: NextRequest, userId?: string) => {
   try {
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { assignmentId, email, role = "viewer", message } = body;
 
@@ -64,8 +68,12 @@ export const POST = withAuth(async (request: NextRequest, userId: string) => {
   }
 });
 
-export const GET = withAuth(async (request: NextRequest, userId: string) => {
+export const GET = withAuth(async (request: NextRequest, userId?: string) => {
   try {
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const assignmentId = searchParams.get("assignmentId");
 
