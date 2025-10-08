@@ -19,6 +19,9 @@ interface User {
   firstName: string;
   lastName: string;
   isEmailVerified: boolean;
+  profilePicture?: string | null;
+  profilePictureProvider?: string | null;
+  oauthAvatarUrl?: string | null;
 }
 
 interface AuthContextType {
@@ -64,6 +67,7 @@ interface AuthContextType {
   setUser: (user: User | null) => void;
   setAccessToken: (token: string | null) => void;
   setRefreshTokenValue: (token: string | null) => void;
+  refreshUserData: () => Promise<void>;
 }
 
 interface SignupData {
@@ -113,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [refreshTokenValue, setRefreshTokenValue] = useState<string | null>(
     null
   );
+  const [isRefreshingUserData, setIsRefreshingUserData] = useState(false);
 
   const isAuthenticated = !!user && !!accessToken;
 
@@ -133,11 +138,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             firstName: (session.user as any).firstName || "",
             lastName: (session.user as any).lastName || "",
             isEmailVerified: (session.user as any).isEmailVerified || false,
+            profilePicture: (session.user as any).profilePicture || null,
+            profilePictureProvider:
+              (session.user as any).profilePictureProvider || null,
+            oauthAvatarUrl: (session.user as any).oauthAvatarUrl || null,
           };
 
           setUser(nextAuthUser);
           setAccessToken("nextauth-session"); // Use NextAuth session as token
           setRefreshTokenValue(null); // NextAuth handles refresh internally
+
+          // For NextAuth sessions, profile picture data is already included in the session
+          // No need for additional API calls that could cause loops
+          console.log("NextAuth session initialized with profile data:", {
+            profilePicture: nextAuthUser.profilePicture,
+            profilePictureProvider: nextAuthUser.profilePictureProvider,
+            oauthAvatarUrl: nextAuthUser.oauthAvatarUrl,
+          });
+
+          // OAuth avatar processing will be handled in a separate useEffect
         } else {
           // Check for existing localStorage tokens (for backward compatibility)
           const storedAccessToken = localStorage.getItem("accessToken");
@@ -172,6 +191,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setRefreshTokenValue(null);
                 setUser(null);
               }
+            } else {
+              // Token is valid, user data is already loaded from localStorage
+              console.log(
+                "Stored token is valid, user data loaded from localStorage"
+              );
             }
           } else {
             setUser(null);
@@ -225,6 +249,151 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshTokenValue]);
 
+  const refreshUserData = useCallback(async () => {
+    if (!user || !accessToken || isRefreshingUserData) return;
+
+    setIsRefreshingUserData(true);
+
+    try {
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+
+      // If we have a JWT token, use it; otherwise rely on NextAuth session
+      if (accessToken && accessToken !== "nextauth-session") {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      const response = await fetch("/api/profile/data", {
+        method: "GET",
+        headers,
+        credentials: "include",
+      });
+
+      if (response.ok) {
+        const profileData = await response.json();
+
+        // Debug logging for profile data fetch
+        console.log("Profile data fetched:", {
+          profilePicture: profileData.profilePicture,
+          profilePictureProvider: profileData.profilePictureProvider,
+          currentUserPicture: user?.profilePicture,
+          currentUserProvider: user?.profilePictureProvider,
+        });
+
+        // Update user object with latest profile picture data
+        if (
+          profileData.profilePicture !== undefined ||
+          profileData.profilePictureProvider !== undefined
+        ) {
+          setUser((prevUser) => {
+            if (!prevUser) return prevUser;
+
+            // Only update if the data has actually changed to prevent unnecessary re-renders
+            if (
+              prevUser.profilePicture !== profileData.profilePicture ||
+              prevUser.profilePictureProvider !==
+                profileData.profilePictureProvider
+            ) {
+              console.log("Updating user profile picture data");
+              return {
+                ...prevUser,
+                profilePicture: profileData.profilePicture || null,
+                profilePictureProvider:
+                  profileData.profilePictureProvider || null,
+              };
+            }
+            console.log("No profile picture changes detected");
+            return prevUser;
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error refreshing user data:", error);
+    } finally {
+      setIsRefreshingUserData(false);
+    }
+  }, [accessToken, user, isRefreshingUserData]); // Added isRefreshingUserData to dependencies
+
+  const processOAuthAvatar = useCallback(
+    async (avatarUrl: string, provider: string) => {
+      if (!user || !accessToken) return;
+
+      try {
+        console.log(
+          "Processing OAuth avatar:",
+          avatarUrl,
+          "for provider:",
+          provider
+        );
+
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+        };
+
+        // For NextAuth sessions, we don't need Authorization header
+        if (accessToken && accessToken !== "nextauth-session") {
+          headers.Authorization = `Bearer ${accessToken}`;
+        }
+
+        const response = await fetch("/api/profile/oauth-avatar", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            avatarUrl,
+            provider,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log("OAuth avatar processed successfully:", result);
+
+          // Update the user object with the new profile picture
+          setUser((prevUser) => {
+            if (!prevUser) return prevUser;
+            return {
+              ...prevUser,
+              profilePicture: result.data.profilePicture,
+              profilePictureProvider: result.data.profilePictureProvider,
+              oauthAvatarUrl: result.data.oauthAvatarUrl,
+            };
+          });
+        } else {
+          console.error(
+            "Failed to process OAuth avatar:",
+            await response.text()
+          );
+        }
+      } catch (error) {
+        console.error("Error processing OAuth avatar:", error);
+      }
+    },
+    [user, accessToken, setUser]
+  );
+
+  // Separate useEffect for OAuth avatar processing
+  useEffect(() => {
+    const processOAuthAvatarIfNeeded = async () => {
+      if (
+        user &&
+        accessToken === "nextauth-session" &&
+        user.oauthAvatarUrl &&
+        !user.profilePicture
+      ) {
+        console.log("Processing OAuth avatar for user:", user.email);
+        try {
+          await processOAuthAvatar(user.oauthAvatarUrl, "google"); // Default to google, could be enhanced to detect provider
+        } catch (error) {
+          console.error("Error processing OAuth avatar:", error);
+        }
+      }
+    };
+
+    processOAuthAvatarIfNeeded();
+  }, [user, accessToken, processOAuthAvatar]);
+
   const login = useCallback(async (email: string, password: string) => {
     try {
       // Use direct API call instead of NextAuth for better error handling
@@ -248,10 +417,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setCookie("accessToken", result.accessToken, 15 * 60); // 15 minutes
         setCookie("refreshToken", result.refreshToken, 7 * 24 * 60 * 60); // 7 days
 
-        // Update context state
+        // Update context state synchronously
         setAccessToken(result.accessToken);
         setRefreshTokenValue(result.refreshToken);
         setUser(result.user);
+
+        // Force a small delay to ensure state is updated
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // Profile picture data is now included in login response, no need for additional fetch
+        console.log("Login successful with profile picture data:", {
+          profilePicture: result.user.profilePicture,
+          profilePictureProvider: result.user.profilePictureProvider,
+          oauthAvatarUrl: result.user.oauthAvatarUrl,
+        });
 
         return { success: true };
       } else {
@@ -310,7 +489,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Use NextAuth signOut if we have a NextAuth session
       if (accessToken === "nextauth-session") {
-        await nextAuthSignOut({ callbackUrl: "/login" });
+        await nextAuthSignOut({
+          callbackUrl: "/login",
+          redirect: false, // We'll handle redirect manually
+        });
       } else {
         // Fallback to custom logout for existing sessions
         if (refreshTokenValue) {
@@ -336,6 +518,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Clear cookies
       clearCookie("accessToken");
       clearCookie("refreshToken");
+
+      // Force redirect to login page
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     }
   }, [refreshTokenValue, accessToken]);
 
@@ -449,6 +636,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser,
     setAccessToken,
     setRefreshTokenValue,
+    refreshUserData,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

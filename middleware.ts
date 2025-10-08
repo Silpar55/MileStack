@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { auth } from "./auth";
 
 // Edge Runtime compatible JWT verification
 async function verifyAccessTokenEdge(
@@ -70,9 +69,13 @@ async function verifyAccessTokenEdge(
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Get the session
-  const session = await auth();
-  const isNextAuthAuthenticated = !!session?.user;
+  // Check for NextAuth session cookie (updated for newer NextAuth versions)
+  const nextAuthSessionCookie =
+    request.cookies.get("authjs.session-token") ||
+    request.cookies.get("__Secure-authjs.session-token") ||
+    request.cookies.get("next-auth.session-token") ||
+    request.cookies.get("__Secure-next-auth.session-token");
+  const isNextAuthAuthenticated = !!nextAuthSessionCookie;
 
   // Check for JWT token in cookies
   const accessToken = request.cookies.get("accessToken")?.value;
@@ -80,7 +83,7 @@ export async function middleware(request: NextRequest) {
 
   console.log("Middleware debug:", {
     pathname,
-    hasNextAuthSession: !!session?.user,
+    hasNextAuthSession: isNextAuthAuthenticated,
     hasAccessTokenCookie: !!accessToken,
     accessTokenLength: accessToken?.length || 0,
     allCookies: request.cookies.getAll().map((c) => c.name),

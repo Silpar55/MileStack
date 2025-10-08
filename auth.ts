@@ -6,6 +6,10 @@ import { db } from "./shared/db";
 import { users } from "./shared/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import {
+  extractAvatarUrlFromOAuth,
+  isValidAvatarUrl,
+} from "./shared/oauth-utils";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -69,6 +73,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             firstName: userRecord.firstName || "",
             lastName: userRecord.lastName || "",
             isEmailVerified: userRecord.isEmailVerified,
+            profilePicture: userRecord.profilePicture,
+            profilePictureProvider: userRecord.profilePictureProvider,
+            oauthAvatarUrl: userRecord.oauthAvatarUrl,
           };
         } catch (error) {
           console.error("Auth error:", error);
@@ -84,6 +91,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.isEmailVerified = user.isEmailVerified;
+        token.profilePicture = (user as any).profilePicture;
+        token.profilePictureProvider = (user as any).profilePictureProvider;
+        token.oauthAvatarUrl = (user as any).oauthAvatarUrl;
       }
       return token;
     },
@@ -93,6 +103,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.firstName = token.firstName as string;
         session.user.lastName = token.lastName as string;
         session.user.isEmailVerified = token.isEmailVerified as boolean;
+        (session.user as any).profilePicture = token.profilePicture as
+          | string
+          | null;
+        (session.user as any).profilePictureProvider =
+          token.profilePictureProvider as string | null;
+        (session.user as any).oauthAvatarUrl = token.oauthAvatarUrl as
+          | string
+          | null;
       }
       return session;
     },
@@ -118,7 +136,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
           if (existingUser.length === 0) {
             console.log("Creating new OAuth user");
-            // Create new user for OAuth
+
+            // Create new user for OAuth first
             const [newUser] = await db
               .insert(users)
               .values({
@@ -136,14 +155,72 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               })
               .returning();
 
+            // Store OAuth avatar URL for later processing
+            let oauthAvatarUrl = null;
+            try {
+              // Extract avatar URL from OAuth provider
+              const avatarUrl = extractAvatarUrlFromOAuth(
+                profile,
+                account.provider as any
+              );
+              if (avatarUrl && isValidAvatarUrl(avatarUrl)) {
+                oauthAvatarUrl = avatarUrl;
+                console.log("OAuth avatar URL found:", avatarUrl);
+
+                // Store the OAuth avatar URL for later processing
+                await db
+                  .update(users)
+                  .set({
+                    oauthAvatarUrl: avatarUrl,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(users.id, newUser.id));
+
+                // Automatically process the OAuth avatar as profile picture
+                // This will be done in the background via the oauth-avatar endpoint
+                console.log("OAuth avatar will be processed automatically");
+              }
+            } catch (error) {
+              console.error("Error storing OAuth avatar URL:", error);
+              // Continue without avatar if processing fails
+            }
+
             user.id = newUser.id;
             user.firstName = newUser.firstName || "";
             user.lastName = newUser.lastName || "";
             user.isEmailVerified = newUser.isEmailVerified;
+            (user as any).profilePicture = newUser.profilePicture;
+            (user as any).profilePictureProvider =
+              newUser.profilePictureProvider;
+            (user as any).oauthAvatarUrl = newUser.oauthAvatarUrl;
             console.log("New OAuth user created:", newUser.id);
           } else {
             console.log("Existing user found:", existingUser[0].id);
             const existingUserRecord = existingUser[0];
+
+            // Check if we should update OAuth avatar URL (only if user doesn't have one)
+            let oauthAvatarUrl = null;
+            if (
+              !existingUserRecord.profilePicture &&
+              !existingUserRecord.oauthAvatarUrl
+            ) {
+              try {
+                const avatarUrl = extractAvatarUrlFromOAuth(
+                  profile,
+                  account.provider as any
+                );
+                if (avatarUrl && isValidAvatarUrl(avatarUrl)) {
+                  oauthAvatarUrl = avatarUrl;
+                  console.log(
+                    "OAuth avatar URL found for existing user:",
+                    avatarUrl
+                  );
+                }
+              } catch (error) {
+                console.error("Error extracting OAuth avatar URL:", error);
+                // Continue without avatar if processing fails
+              }
+            }
 
             // Update existing user info if needed
             const needsUpdate =
@@ -151,7 +228,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 (user.name?.split(" ")[0] || "") ||
               existingUserRecord.lastName !==
                 (user.name?.split(" ").slice(1).join(" ") || "") ||
-              existingUserRecord.email !== normalizedEmail;
+              existingUserRecord.email !== normalizedEmail ||
+              oauthAvatarUrl !== null;
 
             if (needsUpdate) {
               console.log("Updating existing user info");
@@ -165,6 +243,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     existingUserRecord.lastName,
                   email: normalizedEmail,
                   isEmailVerified: true, // OAuth emails are always verified
+                  oauthAvatarUrl:
+                    oauthAvatarUrl || existingUserRecord.oauthAvatarUrl,
                   updatedAt: new Date(),
                 })
                 .where(eq(users.id, existingUserRecord.id));
@@ -179,6 +259,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               existingUserRecord.lastName ||
               "";
             user.isEmailVerified = true; // OAuth emails are always verified
+            (user as any).profilePicture = existingUserRecord.profilePicture;
+            (user as any).profilePictureProvider =
+              existingUserRecord.profilePictureProvider;
+            (user as any).oauthAvatarUrl = existingUserRecord.oauthAvatarUrl;
 
             // If this was a manual account, we can now link it with OAuth
             if (existingUserRecord.password) {
@@ -201,6 +285,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           user.firstName = user.name?.split(" ")[0] || "";
           user.lastName = user.name?.split(" ").slice(1).join(" ") || "";
           user.isEmailVerified = true;
+          (user as any).profilePicture = null;
+          (user as any).profilePictureProvider = null;
+          (user as any).oauthAvatarUrl = null;
 
           return true;
         }

@@ -37,6 +37,9 @@ async function handler(request: NextRequest): Promise<NextResponse> {
         isEmailVerified: users.isEmailVerified,
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
+        profilePicture: users.profilePicture,
+        profilePictureProvider: users.profilePictureProvider,
+        oauthAvatarUrl: users.oauthAvatarUrl,
       })
       .from(users)
       .where(eq(users.id, tokenData.userId))
@@ -54,6 +57,9 @@ async function handler(request: NextRequest): Promise<NextResponse> {
       isEmailVerified: user[0].isEmailVerified,
       createdAt: user[0].createdAt,
       lastLoginAt: user[0].lastLoginAt,
+      profilePicture: user[0].profilePicture,
+      profilePictureProvider: user[0].profilePictureProvider,
+      oauthAvatarUrl: user[0].oauthAvatarUrl,
     });
   } catch (error) {
     console.error("Get user info error:", error);

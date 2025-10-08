@@ -28,9 +28,14 @@ async function handler(
       .select({
         id: users.id,
         email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
         isEmailVerified: users.isEmailVerified,
         emailVerificationToken: users.emailVerificationToken,
         emailVerificationExpires: users.emailVerificationExpires,
+        profilePicture: users.profilePicture,
+        profilePictureProvider: users.profilePictureProvider,
+        oauthAvatarUrl: users.oauthAvatarUrl,
       })
       .from(users)
       .where(
@@ -70,8 +75,8 @@ async function handler(
       .where(eq(users.id, userRecord.id));
 
     // Generate authentication tokens for the user
-    const accessToken = generateAccessToken(userRecord.id);
-    const refreshToken = generateRefreshToken(userRecord.id);
+    const accessToken = generateAccessToken(userRecord.id, userRecord.email);
+    const refreshToken = generateRefreshToken();
 
     // Store refresh token in userSessions table
     await db.insert(userSessions).values({
@@ -103,6 +108,9 @@ async function handler(
         firstName: userRecord.firstName,
         lastName: userRecord.lastName,
         isEmailVerified: true,
+        profilePicture: userRecord.profilePicture,
+        profilePictureProvider: userRecord.profilePictureProvider,
+        oauthAvatarUrl: userRecord.oauthAvatarUrl,
       },
     });
   } catch (error) {
