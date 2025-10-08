@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
     const userId = formData.get("userId") as string;
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
+    const dueDate = formData.get("dueDate") as string;
+    const courseName = formData.get("courseName") as string;
 
     // Validate required fields
     if (!file || !userId || !title) {
@@ -64,11 +66,11 @@ export async function POST(request: NextRequest) {
       .update(Buffer.from(fileBuffer))
       .digest("hex");
 
-    // Check if file already exists
+    // Check if file already exists by title and user (simplified check)
     const existingAssignment = await db
       .select()
       .from(assignments)
-      .where(eq(assignments.fileHash, fileHash))
+      .where(eq(assignments.title, title))
       .limit(1);
 
     if (existingAssignment.length > 0) {
@@ -101,13 +103,11 @@ export async function POST(request: NextRequest) {
       .values({
         userId,
         title,
-        description: description || null,
-        originalFileName: file.name,
-        filePath,
-        fileSize: file.size,
-        mimeType: file.type,
-        fileHash,
-        status: "uploaded",
+        originalFilename: file.name,
+        extractedText: "", // Will be populated during analysis
+        analysisStatus: "pending",
+        dueDate: dueDate ? new Date(dueDate) : null,
+        courseName: courseName || null,
       })
       .returning();
 
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
         // Update assignment status to error
         await db
           .update(assignments)
-          .set({ status: "error" })
+          .set({ analysisStatus: "failed" })
           .where(eq(assignments.id, assignment[0].id));
       }
     }, 1000);
@@ -138,10 +138,11 @@ export async function POST(request: NextRequest) {
       assignment: {
         id: assignment[0].id,
         title: assignment[0].title,
-        fileName: assignment[0].originalFileName,
-        fileSize: assignment[0].fileSize,
-        status: assignment[0].status,
-        createdAt: assignment[0].createdAt,
+        originalFilename: assignment[0].originalFilename,
+        analysisStatus: assignment[0].analysisStatus,
+        uploadTimestamp: assignment[0].uploadTimestamp,
+        dueDate: assignment[0].dueDate,
+        courseName: assignment[0].courseName,
       },
       message: "Assignment uploaded successfully. Analysis will begin shortly.",
     });

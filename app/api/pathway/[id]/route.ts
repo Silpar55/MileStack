@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/shared/db";
-import {
-  learningPathways,
-  learningMilestones,
-} from "@/shared/schema-assignments";
+import { learningPathways, pathwayCheckpoints } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(
@@ -34,12 +31,12 @@ export async function GET(
       );
     }
 
-    // Get milestones for this pathway
-    const milestones = await db
+    // Get checkpoints for this pathway
+    const checkpoints = await db
       .select()
-      .from(learningMilestones)
-      .where(eq(learningMilestones.pathwayId, pathwayId))
-      .orderBy(learningMilestones.order);
+      .from(pathwayCheckpoints)
+      .where(eq(pathwayCheckpoints.pathwayId, pathwayId))
+      .orderBy(pathwayCheckpoints.order);
 
     const response = {
       id: pathway[0].id,
@@ -47,18 +44,20 @@ export async function GET(
       description: pathway[0].description,
       totalPoints: pathway[0].totalPoints,
       estimatedDuration: pathway[0].estimatedDuration,
-      difficultyLevel: pathway[0].difficultyLevel,
+      difficulty: pathway[0].difficulty,
       isActive: pathway[0].isActive,
-      milestones: milestones.map((milestone) => ({
-        id: milestone.id,
-        title: milestone.title,
-        description: milestone.description,
-        points: milestone.points,
-        order: milestone.order,
-        competencyRequirements: milestone.competencyRequirements,
-        resources: milestone.resources,
-        isCompleted: milestone.isCompleted,
-        completedAt: milestone.completedAt,
+      checkpoints: checkpoints.map((checkpoint) => ({
+        id: checkpoint.id,
+        title: checkpoint.title,
+        description: checkpoint.description,
+        type: checkpoint.type,
+        order: checkpoint.order,
+        points: checkpoint.points,
+        timeLimit: checkpoint.timeLimit,
+        maxAttempts: checkpoint.maxAttempts,
+        passingScore: checkpoint.passingScore,
+        content: checkpoint.content,
+        isActive: checkpoint.isActive,
       })),
       createdAt: pathway[0].createdAt,
       updatedAt: pathway[0].updatedAt,
@@ -135,10 +134,10 @@ export async function DELETE(
       );
     }
 
-    // Delete milestones first
+    // Delete checkpoints first
     await db
-      .delete(learningMilestones)
-      .where(eq(learningMilestones.pathwayId, pathwayId));
+      .delete(pathwayCheckpoints)
+      .where(eq(pathwayCheckpoints.pathwayId, pathwayId));
 
     // Delete pathway
     await db.delete(learningPathways).where(eq(learningPathways.id, pathwayId));

@@ -4,7 +4,6 @@ import {
   challenges,
   challengeSubmissions,
   userProgress,
-  leaderboards,
 } from "@/shared/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { codeExecutionService } from "@/shared/code-execution";
@@ -180,77 +179,8 @@ export async function POST(request: NextRequest) {
       })
       .where(eq(challenges.id, challengeId));
 
-    // Update leaderboard if submission passed
-    if (executionResult.status === "passed") {
-      // Update overall leaderboard
-      const overallLeaderboard = await db
-        .select()
-        .from(leaderboards)
-        .where(
-          and(
-            eq(leaderboards.userId, userId),
-            eq(leaderboards.category, "overall")
-          )
-        )
-        .limit(1);
-
-      if (overallLeaderboard.length > 0 && overallLeaderboard[0]) {
-        const leaderboard = overallLeaderboard[0];
-        await db
-          .update(leaderboards)
-          .set({
-            points: (leaderboard.points || 0) + pointsEarned,
-            challengesSolved:
-              (leaderboard.challengesSolved || 0) + (isFirstSolve ? 1 : 0),
-            lastSolvedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(leaderboards.id, leaderboard.id));
-      } else {
-        await db.insert(leaderboards).values({
-          userId,
-          category: "overall",
-          points: pointsEarned,
-          challengesSolved: 1,
-          lastSolvedAt: new Date(),
-        });
-      }
-
-      // Update category leaderboard
-      const categoryLeaderboard = await db
-        .select()
-        .from(leaderboards)
-        .where(
-          and(
-            eq(leaderboards.userId, userId),
-            eq(leaderboards.category, challengeData.category)
-          )
-        )
-        .limit(1);
-
-      if (categoryLeaderboard.length > 0 && categoryLeaderboard[0]) {
-        const categoryLeaderboardEntry = categoryLeaderboard[0];
-        await db
-          .update(leaderboards)
-          .set({
-            points: (categoryLeaderboardEntry.points || 0) + pointsEarned,
-            challengesSolved:
-              (categoryLeaderboardEntry.challengesSolved || 0) +
-              (isFirstSolve ? 1 : 0),
-            lastSolvedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(leaderboards.id, categoryLeaderboardEntry.id));
-      } else {
-        await db.insert(leaderboards).values({
-          userId,
-          category: challengeData.category,
-          points: pointsEarned,
-          challengesSolved: 1,
-          lastSolvedAt: new Date(),
-        });
-      }
-    }
+    // Note: Leaderboard functionality has been removed from the core system
+    // Points are still tracked through the points system for gamification
 
     return NextResponse.json({
       success: true,

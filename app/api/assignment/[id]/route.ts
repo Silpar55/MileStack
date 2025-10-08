@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/shared/db";
 import {
   assignments,
-  assignmentAnalyses,
-  learningPathways,
+  assignmentAnalysis,
   learningMilestones,
 } from "@/shared/schema-assignments";
 import { eq } from "drizzle-orm";
@@ -41,76 +40,51 @@ export async function GET(
     // Get analysis results if available
     const analysis = await db
       .select()
-      .from(assignmentAnalyses)
-      .where(eq(assignmentAnalyses.assignmentId, assignmentId))
+      .from(assignmentAnalysis)
+      .where(eq(assignmentAnalysis.assignmentId, assignmentId))
       .limit(1);
 
-    // Get learning pathway if available
-    const pathway = await db
+    // Get learning milestones if available
+    const milestones = await db
       .select()
-      .from(learningPathways)
-      .where(eq(learningPathways.assignmentId, assignmentId))
-      .limit(1);
-
-    let milestones: any[] = [];
-    if (pathway.length > 0) {
-      milestones = await db
-        .select()
-        .from(learningMilestones)
-        .where(eq(learningMilestones.pathwayId, pathway[0].id))
-        .orderBy(learningMilestones.order);
-    }
+      .from(learningMilestones)
+      .where(eq(learningMilestones.assignmentId, assignmentId))
+      .orderBy(learningMilestones.milestoneOrder);
 
     const response = {
       assignment: {
         id: assignmentData.id,
         title: assignmentData.title,
-        description: assignmentData.description,
-        fileName: assignmentData.originalFileName,
-        fileSize: assignmentData.fileSize,
-        mimeType: assignmentData.mimeType,
-        status: assignmentData.status,
-        createdAt: assignmentData.createdAt,
-        updatedAt: assignmentData.updatedAt,
+        originalFilename: assignmentData.originalFilename,
+        extractedText: assignmentData.extractedText,
+        analysisStatus: assignmentData.analysisStatus,
+        estimatedDifficulty: assignmentData.estimatedDifficulty,
+        dueDate: assignmentData.dueDate,
+        courseName: assignmentData.courseName,
+        uploadTimestamp: assignmentData.uploadTimestamp,
       },
       analysis:
         analysis.length > 0
           ? {
-              id: analysis[0].id,
+              assignmentId: analysis[0].assignmentId,
               concepts: analysis[0].concepts,
-              skills: analysis[0].skills,
-              difficultyLevel: analysis[0].difficultyLevel,
-              estimatedTimeHours: analysis[0].estimatedTimeHours,
+              languages: analysis[0].languages,
+              difficultyScore: analysis[0].difficultyScore,
               prerequisites: analysis[0].prerequisites,
-              learningGaps: analysis[0].learningGaps,
-              createdAt: analysis[0].createdAt,
+              estimatedTimeHours: analysis[0].estimatedTimeHours,
+              analysisTimestamp: analysis[0].analysisTimestamp,
             }
           : null,
-      pathway:
-        pathway.length > 0
-          ? {
-              id: pathway[0].id,
-              title: pathway[0].title,
-              description: pathway[0].description,
-              totalPoints: pathway[0].totalPoints,
-              estimatedDuration: pathway[0].estimatedDuration,
-              difficultyLevel: pathway[0].difficultyLevel,
-              isActive: pathway[0].isActive,
-              milestones: milestones.map((milestone) => ({
-                id: milestone.id,
-                title: milestone.title,
-                description: milestone.description,
-                points: milestone.points,
-                order: milestone.order,
-                competencyRequirements: milestone.competencyRequirements,
-                resources: milestone.resources,
-                isCompleted: milestone.isCompleted,
-                completedAt: milestone.completedAt,
-              })),
-              createdAt: pathway[0].createdAt,
-              updatedAt: pathway[0].updatedAt,
-            }
-          : null,
+      milestones: milestones.map((milestone) => ({
+        id: milestone.id,
+        title: milestone.title,
+        description: milestone.description,
+        milestoneOrder: milestone.milestoneOrder,
+        competencyRequirement: milestone.competencyRequirement,
+        pointsReward: milestone.pointsReward,
+        status: milestone.status,
+        createdAt: milestone.createdAt,
+      })),
     };
 
     return NextResponse.json(response);
@@ -151,28 +125,13 @@ export async function DELETE(
       );
     }
 
-    // Delete associated data (cascade delete would be better in production)
+    // Delete associated data (cascade delete will handle most of this)
+    // Delete assignment analysis
     await db
-      .delete(assignmentAnalyses)
-      .where(eq(assignmentAnalyses.assignmentId, assignmentId));
+      .delete(assignmentAnalysis)
+      .where(eq(assignmentAnalysis.assignmentId, assignmentId));
 
-    // Delete learning pathway and milestones
-    const pathway = await db
-      .select()
-      .from(learningPathways)
-      .where(eq(learningPathways.assignmentId, assignmentId))
-      .limit(1);
-
-    if (pathway.length > 0) {
-      await db
-        .delete(learningMilestones)
-        .where(eq(learningMilestones.pathwayId, pathway[0].id));
-
-      await db
-        .delete(learningPathways)
-        .where(eq(learningPathways.id, pathway[0].id));
-    }
-
+    // Delete learning milestones (cascade delete will handle this)
     // Delete assignment
     await db.delete(assignments).where(eq(assignments.id, assignmentId));
 

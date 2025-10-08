@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/shared/db";
-import { userProgress, learningMilestones } from "@/shared/schema-assignments";
+import {
+  assignmentUserProgress,
+  learningMilestones,
+} from "@/shared/schema-assignments";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(
@@ -33,14 +36,18 @@ export async function POST(
       );
     }
 
+    // Get the assignment ID from the milestone
+    const milestoneData = milestone[0];
+    const assignmentId = milestoneData.assignmentId;
+
     // Check if progress already exists
     const existingProgress = await db
       .select()
-      .from(userProgress)
+      .from(assignmentUserProgress)
       .where(
         and(
-          eq(userProgress.userId, userId),
-          eq(userProgress.milestoneId, milestoneId)
+          eq(assignmentUserProgress.userId, userId),
+          eq(assignmentUserProgress.assignmentId, assignmentId)
         )
       )
       .limit(1);
@@ -48,34 +55,40 @@ export async function POST(
     let progress;
     if (existingProgress.length > 0) {
       // Update existing progress
+      const currentProgress = existingProgress[0];
+      const newPointsEarned =
+        status === "completed" ? milestoneData.pointsReward : 0;
+      const newCheckpointsPassed = status === "completed" ? 1 : 0;
+
       progress = await db
-        .update(userProgress)
+        .update(assignmentUserProgress)
         .set({
-          status,
-          progressPercentage: progressPercentage || 0,
-          evidence,
-          updatedAt: new Date(),
-          ...(status === "completed" && { completedAt: new Date() }),
-          ...(status === "in_progress" &&
-            !existingProgress[0].startedAt && { startedAt: new Date() }),
+          currentMilestoneId: status === "completed" ? null : milestoneId,
+          pointsEarned: currentProgress.pointsEarned + newPointsEarned,
+          totalCheckpointsPassed:
+            currentProgress.totalCheckpointsPassed + newCheckpointsPassed,
+          progressPercentage:
+            progressPercentage || currentProgress.progressPercentage,
+          lastActivity: new Date(),
         })
-        .where(eq(userProgress.id, existingProgress[0].id))
+        .where(eq(assignmentUserProgress.userId, userId))
         .returning();
     } else {
       // Create new progress
+      const newPointsEarned =
+        status === "completed" ? milestoneData.pointsReward : 0;
+      const newCheckpointsPassed = status === "completed" ? 1 : 0;
+
       progress = await db
-        .insert(userProgress)
+        .insert(assignmentUserProgress)
         .values({
           userId,
-          milestoneId,
-          status,
+          assignmentId,
+          currentMilestoneId: status === "completed" ? null : milestoneId,
+          pointsEarned: newPointsEarned,
+          totalCheckpointsPassed: newCheckpointsPassed,
           progressPercentage: progressPercentage || 0,
-          evidence,
-          ...(status === "in_progress" && { startedAt: new Date() }),
-          ...(status === "completed" && {
-            startedAt: new Date(),
-            completedAt: new Date(),
-          }),
+          lastActivity: new Date(),
         })
         .returning();
     }
@@ -85,8 +98,7 @@ export async function POST(
       await db
         .update(learningMilestones)
         .set({
-          isCompleted: true,
-          completedAt: new Date(),
+          status: "completed",
         })
         .where(eq(learningMilestones.id, milestoneId));
     }
@@ -120,27 +132,43 @@ export async function GET(
       );
     }
 
-    // Get user progress for this milestone
+    // Get milestone details first to get assignment ID
+    const milestone = await db
+      .select()
+      .from(learningMilestones)
+      .where(eq(learningMilestones.id, milestoneId))
+      .limit(1);
+
+    if (milestone.length === 0) {
+      return NextResponse.json(
+        { error: "Milestone not found" },
+        { status: 404 }
+      );
+    }
+
+    const assignmentId = milestone[0].assignmentId;
+
+    // Get user progress for this assignment
     const progress = await db
       .select()
-      .from(userProgress)
+      .from(assignmentUserProgress)
       .where(
         and(
-          eq(userProgress.userId, userId),
-          eq(userProgress.milestoneId, milestoneId)
+          eq(assignmentUserProgress.userId, userId),
+          eq(assignmentUserProgress.assignmentId, assignmentId)
         )
       )
       .limit(1);
 
     if (progress.length === 0) {
       return NextResponse.json({
-        milestoneId,
+        assignmentId,
         userId,
-        status: "not_started",
+        currentMilestoneId: null,
+        pointsEarned: 0,
+        totalCheckpointsPassed: 0,
         progressPercentage: 0,
-        startedAt: null,
-        completedAt: null,
-        evidence: null,
+        lastActivity: null,
       });
     }
 

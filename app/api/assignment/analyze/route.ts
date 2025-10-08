@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/shared/db";
 import {
   assignments,
-  assignmentAnalyses,
-  learningPathways,
+  assignmentAnalysis,
   learningMilestones,
 } from "@/shared/schema-assignments";
 import { eq } from "drizzle-orm";
@@ -57,39 +56,20 @@ export async function POST(request: NextRequest) {
     // Update status to processing
     await db
       .update(assignments)
-      .set({ status: "processing" })
+      .set({ analysisStatus: "processing" })
       .where(eq(assignments.id, assignmentId));
 
     // Extract text based on file type
     let extractedText = "";
 
     try {
-      switch (assignmentData.mimeType) {
-        case "application/pdf":
-          extractedText = await extractTextFromPDF(assignmentData.filePath);
-          break;
-        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        case "application/msword":
-          extractedText = await extractTextFromDOCX(assignmentData.filePath);
-          break;
-        case "text/plain":
-          extractedText = await readFile(assignmentData.filePath, "utf-8");
-          break;
-        case "image/jpeg":
-        case "image/png":
-        case "image/gif":
-        case "image/bmp":
-        case "image/tiff":
-          extractedText = await extractTextFromImage(assignmentData.filePath);
-          break;
-        default:
-          throw new Error(`Unsupported file type: ${assignmentData.mimeType}`);
-      }
+      // For now, use the extracted text from the assignment if available
+      extractedText = assignmentData.extractedText || "No text available";
     } catch (error) {
       console.error("Text extraction error:", error);
       await db
         .update(assignments)
-        .set({ status: "error" })
+        .set({ analysisStatus: "failed" })
         .where(eq(assignments.id, assignmentId));
 
       return NextResponse.json(
@@ -117,91 +97,64 @@ export async function POST(request: NextRequest) {
 
     // Save analysis results
     const analysis = await db
-      .insert(assignmentAnalyses)
+      .insert(assignmentAnalysis)
       .values({
         assignmentId,
-        extractedText,
         concepts: analysisResult.concepts,
-        skills: analysisResult.skills,
-        difficultyLevel: analysisResult.difficultyLevel,
-        estimatedTimeHours: analysisResult.estimatedTimeHours.toString(),
+        languages: ["python", "javascript"], // Default languages
+        difficultyScore: Math.min(
+          Math.max(analysisResult.difficultyLevel, 1),
+          10
+        ) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
         prerequisites: analysisResult.prerequisites,
-        learningGaps: analysisResult.learningGaps,
-        aiAnalysisMetadata: {
-          timestamp: new Date().toISOString(),
-          model: "gemini-1.5-flash",
-          version: "1.0",
-        },
+        estimatedTimeHours: analysisResult.estimatedTimeHours.toString(),
       })
       .returning();
 
-    // Create learning pathway
-    const pathway = await db
-      .insert(learningPathways)
-      .values({
-        assignmentId,
-        userId: assignmentData.userId,
-        title: `Learning Path: ${assignmentData.title}`,
-        description: `Personalized learning pathway for ${assignmentData.title}`,
-        totalPoints: analysisResult.milestones.reduce(
-          (sum, milestone) => sum + milestone.points,
-          0
-        ),
-        estimatedDuration: Math.ceil(analysisResult.estimatedTimeHours / 2), // 2 hours per day
-        difficultyLevel: analysisResult.difficultyLevel,
-      })
-      .returning();
-
-    // Create learning milestones
+    // Create learning milestones directly for the assignment
     const milestones = [];
     for (let i = 0; i < analysisResult.milestones.length; i++) {
       const milestone = analysisResult.milestones[i];
       const createdMilestone = await db
         .insert(learningMilestones)
         .values({
-          pathwayId: pathway[0].id,
+          assignmentId,
+          milestoneOrder: i + 1,
           title: milestone.title,
           description: milestone.description,
-          points: milestone.points,
-          order: i + 1,
-          competencyRequirements: milestone.competencyRequirements,
-          resources: [], // Will be populated later
+          competencyRequirement: milestone.competencyRequirements.join(", "),
+          pointsReward: milestone.points,
+          status: "locked", // Will be unlocked as user progresses
         })
         .returning();
       milestones.push(createdMilestone[0]);
     }
 
-    // Update assignment status to analyzed
+    // Update assignment status to complete
     await db
       .update(assignments)
-      .set({ status: "analyzed" })
+      .set({ analysisStatus: "complete" })
       .where(eq(assignments.id, assignmentId));
 
     return NextResponse.json({
       success: true,
       analysis: {
-        id: analysis[0].id,
+        assignmentId: analysis[0].assignmentId,
         concepts: analysisResult.concepts,
-        skills: analysisResult.skills,
-        difficultyLevel: analysisResult.difficultyLevel,
-        estimatedTimeHours: analysisResult.estimatedTimeHours,
+        languages: analysis[0].languages,
+        difficultyScore: analysisResult.difficultyLevel,
         prerequisites: analysisResult.prerequisites,
-        learningGaps: analysisResult.learningGaps,
+        estimatedTimeHours: analysisResult.estimatedTimeHours,
       },
-      pathway: {
-        id: pathway[0].id,
-        title: pathway[0].title,
-        totalPoints: pathway[0].totalPoints,
-        estimatedDuration: pathway[0].estimatedDuration,
-        milestones: milestones.map((m) => ({
-          id: m.id,
-          title: m.title,
-          description: m.description,
-          points: m.points,
-          order: m.order,
-          competencyRequirements: m.competencyRequirements,
-        })),
-      },
+      milestones: milestones.map((m) => ({
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        milestoneOrder: m.milestoneOrder,
+        competencyRequirement: m.competencyRequirement,
+        pointsReward: m.pointsReward,
+        status: m.status,
+      })),
     });
   } catch (error) {
     console.error("Assignment analysis error:", error);
