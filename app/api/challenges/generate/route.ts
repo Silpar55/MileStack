@@ -122,7 +122,7 @@ async function generateChallengeWithAI(
 ): Promise<GeneratedChallenge> {
   const geminiApiKey = process.env.GEMINI_API_KEY!;
   const genAI = new GoogleGenerativeAI(geminiApiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
 
   const prompt = `
 You are an expert programming instructor and challenge creator. Generate a comprehensive programming challenge based on the following requirements:

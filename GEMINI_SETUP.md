@@ -35,7 +35,7 @@ NEXT_PUBLIC_BASE_URL="http://localhost:3000"
 
 ## Gemini AI Features Used
 
-- **Model**: `gemini-1.5-flash` (fast and efficient)
+- **Model**: `gemini-1.0-pro` (fast and efficient)
 - **Temperature**: 0.3 (balanced creativity and consistency)
 - **Max Tokens**: 2000 (sufficient for analysis responses)
 - **Free Tier**: 15 requests per minute, 1 million tokens per day
