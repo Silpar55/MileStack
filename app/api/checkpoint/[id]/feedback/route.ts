@@ -112,6 +112,9 @@ export async function GET(
               recommendations: [],
               isPassed: assessment[0].isPassed || false,
               detailedAnalysis: assessment[0].aiAnalysis || {},
+              originalityScore: 0,
+              plagiarismDetected: false,
+              plagiarismScore: 0,
             },
             {
               // Student profile would come from user data

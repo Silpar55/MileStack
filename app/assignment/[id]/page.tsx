@@ -236,13 +236,35 @@ export default function AssignmentDetailPage() {
         )}
 
         {assignment.analysisStatus === "failed" && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Analysis failed. Please try again or contact support if the issue
-              persists.
-            </AlertDescription>
-          </Alert>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+              <h3 className="text-lg font-semibold mb-2 text-red-600">
+                Analysis Failed
+              </h3>
+              <p className="text-muted-foreground mb-4">
+                We encountered an issue while analyzing your assignment. Please
+                try again.
+              </p>
+              <Button
+                onClick={startAnalysis}
+                disabled={loading}
+                variant="outline"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Retrying Analysis...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-4 h-4 mr-2" />
+                    Analyze Assignment
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
         )}
 
         {/* Start Analysis Button */}

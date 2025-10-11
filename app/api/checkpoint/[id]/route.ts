@@ -68,14 +68,13 @@ export async function POST(
 
     const { milestone: ms, assignment: assign, analysis } = milestoneData[0];
 
-    // Check if milestone is already completed and locked
-    if (ms.status === "completed" && ms.isLockedAfterCompletion) {
+    // Check if milestone is already completed
+    if (ms.status === "completed") {
       return NextResponse.json(
         {
           error: "Milestone already completed",
           message: "You have already successfully completed this milestone.",
-          completed_at: ms.completedAt,
-          final_score: ms.status === "completed" ? "N/A" : null,
+          status: "completed",
         },
         { status: 400 }
       );
@@ -111,20 +110,20 @@ export async function POST(
     // Prepare grading context
     const gradingContext = {
       assignmentTitle: assign.title,
-      assignmentDomain:
-        ms.assignmentDomain || analysis?.domainClassification || "general",
+      assignmentDomain: "general",
       milestoneTitle: ms.title,
       competencyRequirement: ms.competencyRequirement,
-      expectedConcepts: (ms.expectedConcepts as string[]) || [],
+      expectedConcepts: (analysis?.concepts as string[]) || [],
       studentAnswer: answer.trim(),
       attemptNumber,
       previousFeedback: previousAttempts.map((attempt) => ({
-        feedback_type: attempt.feedbackType,
-        detailed_feedback: attempt.detailedFeedback,
-        final_score: attempt.finalScore,
+        feedback_type: "needs_improvement",
+        detailed_feedback: { suggestions: [attempt.feedback || ""] },
+        final_score: attempt.aiScore || 0,
       })),
-      userInstructions: ms.userInstructions || undefined,
-      difficultyLevel: ms.difficultyLevel || undefined,
+      userInstructions: undefined,
+      difficultyLevel: assign.estimatedDifficulty || undefined,
+      userId: session.user.id,
     };
 
     // Grade the response using intelligent grading service
@@ -134,33 +133,7 @@ export async function POST(
     );
 
     // Get adaptive feedback based on previous attempts
-    const adaptiveFeedback = await getAdaptiveFeedback(
-      gradingResult,
-      previousAttempts.map((attempt) => ({
-        context_relevance_score: attempt.contextRelevanceScore || 0,
-        understanding_depth_score: attempt.understandingDepthScore || 0,
-        completeness_score: attempt.completenessScore || 0,
-        final_score: attempt.finalScore || 0,
-        passed: attempt.passed,
-        feedback_type: attempt.feedbackType || "needs_improvement",
-        concepts_identified: (attempt.conceptsIdentified as string[]) || [],
-        detailed_feedback: (attempt.detailedFeedback as any) || {
-          context_feedback: "",
-          understanding_feedback: "",
-          completeness_feedback: "",
-          suggestions: [],
-          encouragement: "",
-        },
-        improvement_suggestions: [],
-        learning_indicators: {
-          concept_grasp: "developing" as const,
-          application_skill: "beginner" as const,
-          critical_thinking: "basic" as const,
-        },
-        next_steps: [],
-      })),
-      gradingContext
-    );
+    const adaptiveFeedback = getAdaptiveFeedback(gradingResult, gradingContext);
 
     // Generate reflection prompts
     const reflectionPrompts = generateReflectionPrompts(
@@ -174,41 +147,19 @@ export async function POST(
     if (previousAttempts.length > 0) {
       const lastAttempt = previousAttempts[0];
       scoreDelta =
-        (gradingResult.final_score || 0) - (lastAttempt.finalScore || 0);
+        (gradingResult.final_score || 0) - (lastAttempt.aiScore || 0);
       improvementFromPrevious = scoreDelta > 0;
     }
 
-    // Store the attempt with comprehensive data
+    // Store the attempt with data that matches the schema
     const attemptData = {
       userId: session.user.id,
       milestoneId,
       attemptNumber,
       submittedAnswer: answer.trim(),
-      contextRelevanceScore: gradingResult.context_relevance_score as any,
-      understandingDepthScore: gradingResult.understanding_depth_score as any,
-      completenessScore: gradingResult.completeness_score as any,
-      finalScore: gradingResult.final_score as any,
+      aiScore: gradingResult.final_score as any,
       passed: gradingResult.passed,
       feedback: JSON.stringify(gradingResult.detailed_feedback),
-      feedbackType: gradingResult.feedback_type,
-      detailedFeedback: gradingResult.detailed_feedback,
-      conceptsIdentified: gradingResult.concepts_identified,
-      isFinalAttempt: isFinalAttempt || false,
-      timeSpentSeconds: timeSpentSeconds || null,
-      attemptSequence: attemptNumber,
-      improvementFromPrevious,
-      scoreDelta,
-      attemptQualityScore: gradingResult.final_score as any,
-      improvementSuggestions: gradingResult.improvement_suggestions,
-      learningIndicators: gradingResult.learning_indicators,
-      reflectionPrompts,
-      nextSteps: gradingResult.next_steps,
-      adaptiveFeedback: { suggestions: adaptiveFeedback },
-      attemptContext: {
-        assignment_domain: gradingContext.assignmentDomain,
-        milestone_type: ms.milestoneType,
-        difficulty_level: ms.difficultyLevel,
-      },
     };
 
     await db.insert(assignmentCheckpointAttempts).values(attemptData);
@@ -227,8 +178,6 @@ export async function POST(
         .update(learningMilestones)
         .set({
           status: "completed",
-          completedAt: new Date(),
-          completedByUserId: session.user.id,
         })
         .where(eq(learningMilestones.id, milestoneId));
 
@@ -392,7 +341,7 @@ export async function GET(
       .orderBy(desc(assignmentCheckpointAttempts.attemptTimestamp));
 
     // Check if milestone is locked after completion
-    const isLocked = ms.status === "completed" && ms.isLockedAfterCompletion;
+    const isLocked = ms.status === "completed";
 
     return NextResponse.json({
       milestone: {
@@ -402,18 +351,13 @@ export async function GET(
         competency_requirement: ms.competencyRequirement,
         points_reward: ms.pointsReward,
         status: ms.status,
-        milestone_type: ms.milestoneType,
-        difficulty_level: ms.difficultyLevel,
-        expected_concepts: ms.expectedConcepts,
-        user_instructions: ms.userInstructions,
-        is_locked_after_completion: ms.isLockedAfterCompletion,
-        completed_at: ms.completedAt,
+        milestone_order: ms.milestoneOrder,
       },
       assignment: {
         id: assign.id,
         title: assign.title,
-        domain: ms.assignmentDomain || analysis?.domainClassification,
-        key_deliverables: analysis?.keyDeliverables,
+        domain: "general",
+        concepts: analysis?.concepts,
       },
       attempts: {
         total: previousAttempts.length,
@@ -421,19 +365,19 @@ export async function GET(
           attempt_number: attempt.attemptNumber,
           submitted_answer: attempt.submittedAnswer,
           scores: {
-            context_relevance: attempt.contextRelevanceScore,
-            understanding_depth: attempt.understandingDepthScore,
-            completeness: attempt.completenessScore,
-            final: attempt.finalScore,
+            context_relevance: 0,
+            understanding_depth: 0,
+            completeness: 0,
+            final: attempt.aiScore || 0,
           },
           passed: attempt.passed,
-          feedback_type: attempt.feedbackType,
-          detailed_feedback: attempt.detailedFeedback,
-          concepts_identified: attempt.conceptsIdentified,
+          feedback_type: "needs_improvement",
+          detailed_feedback: { suggestions: [attempt.feedback || ""] },
+          concepts_identified: [],
           attempt_timestamp: attempt.attemptTimestamp,
-          time_spent_seconds: attempt.timeSpentSeconds,
-          improvement_from_previous: attempt.improvementFromPrevious,
-          score_delta: attempt.scoreDelta,
+          time_spent_seconds: 0,
+          improvement_from_previous: false,
+          score_delta: 0,
         })),
       },
       can_attempt: !isLocked && ms.status !== "locked",

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// TODO: Replace with custom AI agent integration
 
 interface ChallengeGenerationRequest {
   concepts: string[];
@@ -84,14 +84,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
 
-    // Get Gemini API key
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      return NextResponse.json(
-        { error: "AI service not configured" },
-        { status: 500 }
-      );
-    }
+    // TODO: Replace with custom AI agent integration
+    // For now, always generate mock challenges
 
     // Generate challenge using AI
     const generatedChallenge = await generateChallengeWithAI({
@@ -120,93 +114,43 @@ export async function POST(request: NextRequest) {
 async function generateChallengeWithAI(
   params: ChallengeGenerationRequest
 ): Promise<GeneratedChallenge> {
-  const geminiApiKey = process.env.GEMINI_API_KEY!;
-  const genAI = new GoogleGenerativeAI(geminiApiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
-
-  const prompt = `
-You are an expert programming instructor and challenge creator. Generate a comprehensive programming challenge based on the following requirements:
-
-Concepts: ${params.concepts.join(", ")}
-Difficulty: ${params.difficulty}
-Category: ${params.category}
-Subcategory: ${params.subcategory || "general"}
-Time Limit: ${params.timeLimit || "no limit"}
-Language: ${params.language}
-
-Please create a JSON response with the following structure:
-
-{
-  "title": "Challenge Title",
-  "description": "Detailed problem description with examples and constraints",
-  "difficulty": "${params.difficulty}",
-  "category": "${params.category}",
-  "subcategory": "${params.subcategory || "general"}",
-  "points": 100,
-  "timeLimit": ${params.timeLimit || 300},
-  "memoryLimit": 256,
-  "prerequisites": ["concept1", "concept2"],
-  "tags": ["tag1", "tag2", "tag3"],
-  "starterCode": {
-    "javascript": "function solution() {\n  // Your code here\n}",
-    "python": "def solution():\n    # Your code here\n    pass",
-    "java": "public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}",
-    "cpp": "#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}"
-  },
-  "testCases": [
-    {
-      "input": "example input",
-      "expectedOutput": "expected output",
-      "description": "Test case description",
-      "isHidden": false
-    }
-  ],
-  "expectedOutput": "Expected output format description",
-  "hints": [
-    "Hint 1: Think about the approach",
-    "Hint 2: Consider edge cases",
-    "Hint 3: Optimize your solution"
-  ],
-  "solution": "Complete solution code"
+  // TODO: Replace with custom AI agent integration
+  // For now, return a mock challenge
+  return getMockChallenge(params);
 }
 
-Requirements:
-1. Make the challenge appropriate for ${params.difficulty} level
-2. Focus on the concepts: ${params.concepts.join(", ")}
-3. Include 3-5 test cases with at least 2 hidden
-4. Provide starter code for multiple languages
-5. Make the description clear and engaging
-6. Include helpful hints that guide without giving away the solution
-7. Ensure the challenge is solvable within the time limit
-8. Make it educational and practical
-
-Generate a challenging but fair programming problem that tests the specified concepts.
-`;
-
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const content = response.text();
-
-    // Parse the JSON response
-    const challengeData = JSON.parse(content);
-
-    // Validate the generated challenge
-    if (
-      !challengeData.title ||
-      !challengeData.description ||
-      !challengeData.testCases
-    ) {
-      throw new Error("Invalid challenge generated");
-    }
-
-    return challengeData as GeneratedChallenge;
-  } catch (error) {
-    console.error("AI challenge generation error:", error);
-
-    // Fallback to a basic challenge template
-    return generateFallbackChallenge(params);
-  }
+function getMockChallenge(
+  params: ChallengeGenerationRequest
+): GeneratedChallenge {
+  return {
+    title: `Mock ${params.category} Challenge`,
+    description: `This is a mock challenge for ${params.concepts.join(
+      ", "
+    )} concepts at ${params.difficulty} level.`,
+    difficulty: params.difficulty,
+    category: params.category,
+    subcategory: params.subcategory || "general",
+    points: 100,
+    timeLimit: params.timeLimit || 300,
+    memoryLimit: 256,
+    prerequisites: params.concepts,
+    tags: params.concepts,
+    starterCode: {
+      javascript: "function solution() {\n  // Your code here\n}",
+      python: "def solution():\n    # Your code here\n    pass",
+    },
+    testCases: [
+      {
+        input: "test input",
+        expectedOutput: "expected output",
+        description: "Basic test case",
+        isHidden: false,
+      },
+    ],
+    expectedOutput: "Expected output format",
+    hints: ["Think about the problem step by step"],
+    solution: "// Solution will be available after custom AI agent integration",
+  };
 }
 
 function generateFallbackChallenge(

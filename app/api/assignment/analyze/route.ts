@@ -8,9 +8,10 @@ import {
 } from "@/shared/schema-assignments";
 import { eq } from "drizzle-orm";
 import { readFile } from "fs/promises";
+import { join } from "path";
 import Tesseract from "tesseract.js";
 import mammoth from "mammoth";
-import { analyzeAssignmentWithGemini } from "@/shared/analysis-service";
+import { analyzeAssignmentWithAI } from "@/shared/analysis-service";
 
 export async function POST(request: NextRequest) {
   try {
@@ -67,23 +68,65 @@ export async function POST(request: NextRequest) {
     // Use the extracted text from the assignment
     let extractedText = assignmentData.extractedText || "";
 
-    // If no text was extracted, provide a fallback message
-    if (!extractedText || extractedText.trim().length === 0) {
-      extractedText = `Assignment: ${assignmentData.title}\n\nNo readable text could be extracted from the uploaded file. Please ensure the file contains text and try uploading again.`;
-      console.warn(`No text extracted for assignment ${assignmentId}`);
+    // Get Lyzr asset IDs from assignment
+    const lyzrAssetIds = Array.isArray(assignmentData.lyzrAssetIds)
+      ? assignmentData.lyzrAssetIds
+      : [];
+
+    console.log("=== ANALYSIS DEBUG ===");
+    console.log("Assignment Title:", assignmentData.title);
+    console.log("Has Lyzr Asset IDs:", lyzrAssetIds.length > 0);
+    console.log("Lyzr Asset IDs:", lyzrAssetIds);
+    console.log("Raw Extracted Text:", extractedText);
+    console.log("Extracted Text Length:", extractedText.length);
+    console.log("==============================");
+
+    // If no Lyzr asset IDs and no extracted text, provide a fallback message
+    if (
+      lyzrAssetIds.length === 0 &&
+      (!extractedText || extractedText.trim().length === 0)
+    ) {
+      extractedText = `Assignment: ${assignmentData.title}\n\nNo files were successfully uploaded for processing. Please try uploading again.`;
+      console.warn(`No Lyzr asset IDs for assignment ${assignmentId}`);
     }
 
-    // Perform AI analysis using Gemini
-    console.log("Starting Gemini analysis for assignment:", assignmentId);
-    console.log("Extracted text length:", extractedText.length);
+    // Perform AI analysis using custom AI agent
+    console.log("Starting AI analysis for assignment:", assignmentId);
+    console.log("Final extracted text length:", extractedText.length);
 
     let analysisResult;
     try {
-      analysisResult = await analyzeAssignmentWithGemini(extractedText);
-      console.log("Gemini analysis completed successfully:", analysisResult);
-    } catch (geminiError) {
-      console.error("Gemini analysis failed:", geminiError);
-      throw geminiError;
+      analysisResult = await analyzeAssignmentWithAI(
+        {
+          title: assignmentData.title,
+          description: undefined, // Description field not available in current schema
+          courseName: assignmentData.courseName || undefined,
+          extractedText: extractedText,
+          lyzrAssetIds: lyzrAssetIds,
+        },
+        session.user.id
+      );
+      console.log("AI analysis completed successfully:", analysisResult);
+    } catch (aiError) {
+      console.error("AI analysis failed:", aiError);
+      // Update assignment status to failed
+      await db
+        .update(assignments)
+        .set({
+          analysisStatus: "failed",
+        })
+        .where(eq(assignments.id, assignmentId));
+
+      return NextResponse.json(
+        {
+          error: "Analysis failed",
+          message: "We couldn't upload the PDF correctly. Please try again.",
+          details:
+            "The AI agent was unable to process your assignment file. Please ensure the PDF is not corrupted and try uploading again.",
+          canRetry: true,
+        },
+        { status: 500 }
+      );
     }
 
     // Save analysis results

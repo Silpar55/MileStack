@@ -14,10 +14,11 @@ interface User {
   points: number;
   level: number;
   streak: number;
+  globalRank: number;
 }
 
 interface Assignment {
-  id: number;
+  id: string;
   title: string;
   course: string;
   dueDate: string;
@@ -28,7 +29,7 @@ interface Assignment {
 }
 
 interface Milestone {
-  id: number;
+  id: string;
   title: string;
   completed: boolean;
   locked?: boolean;
@@ -54,50 +55,57 @@ function DashboardPageContent() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      
+
       // Fetch user profile data
-      const profileResponse = await fetch('/api/profile/status');
+      const profileResponse = await fetch("/api/profile/status");
       const profileData = await profileResponse.json();
-      
+
       // Fetch points balance
-      const pointsResponse = await fetch('/api/points/balance');
+      const pointsResponse = await fetch("/api/points/balance");
       const pointsData = await pointsResponse.json();
-      
+
+      // Fetch user stats for global rank
+      const statsResponse = await fetch("/api/profile/stats");
+      const statsData = await statsResponse.json();
+
       // Fetch assignments
-      const assignmentsResponse = await fetch('/api/assignments');
+      const assignmentsResponse = await fetch("/api/assignments");
       const assignmentsData = await assignmentsResponse.json();
-      
-      // Fetch achievements
-      const achievementsResponse = await fetch('/api/achievements');
-      const achievementsData = await achievementsResponse.json();
+      console.log("Assignments API response:", assignmentsData);
 
       // Set user data
       setUser({
-        id: session?.user?.id || '',
-        name: profileData.name || session?.user?.name || 'User',
-        email: session?.user?.email || '',
+        id: session?.user?.id || "",
+        name: profileData.name || session?.user?.name || "User",
+        email: session?.user?.email || "",
         points: pointsData.currentBalance || 0,
         level: Math.floor((pointsData.totalEarned || 0) / 100) + 1,
         streak: profileData.streak || 0,
+        globalRank: statsData?.stats?.globalRank || 0,
       });
 
-      // Set assignments data - convert string IDs to numbers for compatibility
-      const processedAssignments = (assignmentsData || []).map((assignment: any) => ({
-        ...assignment,
-        id: parseInt(assignment.id) || assignment.id,
-        milestones: assignment.milestones?.map((milestone: any) => ({
-          ...milestone,
-          id: parseInt(milestone.id) || milestone.id,
-        })) || [],
-      }));
-      setAssignments(processedAssignments);
-      
+      // Set assignments data - extract assignments from API response
+      if (
+        assignmentsResponse.ok &&
+        assignmentsData.assignments &&
+        Array.isArray(assignmentsData.assignments)
+      ) {
+        const assignmentsArray = assignmentsData.assignments;
+        setAssignments(assignmentsArray);
+      } else {
+        console.error("Assignments API error:", assignmentsData);
+        setAssignments([]);
+      }
+
+      // Fetch achievements
+      const achievementsResponse = await fetch("/api/achievements");
+      const achievementsData = await achievementsResponse.json();
+
       // Set achievements data
       setAchievements(achievementsData || []);
-
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-      setError('Failed to load dashboard data');
+      console.error("Error fetching dashboard data:", err);
+      setError("Failed to load dashboard data");
     } finally {
       setLoading(false);
     }
@@ -134,8 +142,14 @@ function DashboardPageContent() {
   return (
     <Dashboard
       user={user}
-      currentAssignment={assignments[0]}
-      onContinueAssignment={() => router.push("/assignments")}
+      assignments={assignments}
+      onContinueAssignment={(id) => {
+        router.push(`/checkpoint/${id}`);
+      }}
+      onViewRequirements={(assignmentId) =>
+        router.push(`/assignment/${assignmentId}`)
+      }
+      onUploadAssignment={() => router.push("/assignment/upload")}
       onRequestAssistance={() => router.push("/ai/ask")}
     />
   );

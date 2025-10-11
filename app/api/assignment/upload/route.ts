@@ -10,8 +10,12 @@ import { auth } from "../../../../auth";
 // PDF parsing will be handled by a fallback approach
 import mammoth from "mammoth";
 import Tesseract from "tesseract.js";
+import {
+  lyzrAssetService,
+  LyzrAssetService,
+} from "@/shared/lyzr-asset-service";
 
-// Supported file types
+// Supported file types (aligned with Lyzr requirements)
 const SUPPORTED_MIME_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // DOCX
@@ -20,22 +24,48 @@ const SUPPORTED_MIME_TYPES = [
   "image/jpeg",
   "image/png",
   "image/gif",
-  "image/bmp",
-  "image/tiff",
 ];
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB (Lyzr limit)
+const MAX_FILES_PER_ASSIGNMENT = 5; // Lyzr limit
 
 // Text extraction functions
 async function extractTextFromPDF(fileBuffer: Buffer): Promise<string> {
   try {
-    // For now, provide a fallback message for PDF files
-    // In production, you could integrate with a PDF parsing service
-    console.warn("PDF text extraction not fully implemented. Using fallback.");
-    return `PDF file uploaded successfully. The file "${fileBuffer.length} bytes" was received but text extraction from PDF files requires additional setup. For full text analysis, please use text files (.txt), Word documents (.docx), or images (.jpg, .png) instead.`;
+    console.log("Starting PDF text extraction...");
+    console.log(`PDF file size: ${fileBuffer.length} bytes`);
+
+    // For now, we'll provide a structured placeholder that the AI agent can work with
+    // This ensures the system remains functional while we implement proper PDF extraction
+    const placeholderText = `ASSIGNMENT PDF UPLOADED
+
+File Information:
+- File Size: ${fileBuffer.length} bytes
+- File Type: PDF Document
+- Upload Timestamp: ${new Date().toISOString()}
+
+Note: This is a PDF assignment document that requires analysis for milestone generation. The system will generate appropriate programming milestones based on the assignment title and any additional context provided.
+
+For optimal results, please:
+1. Ensure the assignment title clearly describes the programming task
+2. Use the course name field to specify the programming language/framework
+3. Consider converting the PDF to text format for full content analysis
+
+The AI agent will generate relevant programming milestones based on the available information.`;
+
+    console.log("Using structured placeholder for PDF analysis");
+    console.log(
+      `Placeholder text length: ${placeholderText.length} characters`
+    );
+
+    return placeholderText;
   } catch (error) {
     console.error("PDF extraction error:", error);
-    throw new Error("Couldn't read PDF file. Try a different format.");
+    throw new Error(
+      `PDF text extraction failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
   }
 }
 
@@ -141,49 +171,72 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const file = formData.get("file") as File;
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
     const dueDate = formData.get("dueDate") as string;
     const courseName = formData.get("courseName") as string;
     const difficultyEstimate = formData.get("difficultyEstimate") as string;
 
+    // Get all files from form data
+    const files: File[] = [];
+    let fileIndex = 0;
+    while (formData.has(`file${fileIndex}`)) {
+      files.push(formData.get(`file${fileIndex}`) as File);
+      fileIndex++;
+    }
+
+    // If no indexed files, try single file
+    if (files.length === 0) {
+      const file = formData.get("file") as File;
+      if (file) files.push(file);
+    }
+
     // Validate required fields
-    if (!file || !title) {
+    if (files.length === 0 || !title) {
       return NextResponse.json(
-        { error: "Missing required fields: file, title" },
+        { error: "Missing required fields: at least one file and title" },
         { status: 400 }
       );
     }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: "File exceeds 10MB limit" },
-        { status: 413 }
-      );
-    }
-
-    // Validate file type
-    if (!SUPPORTED_MIME_TYPES.includes(file.type)) {
+    // Validate file count
+    if (files.length > MAX_FILES_PER_ASSIGNMENT) {
       return NextResponse.json(
         {
-          error: "Please use PDF, DOCX, TXT, JPG, or PNG",
-          supportedTypes: SUPPORTED_MIME_TYPES,
-          receivedType: file.type,
+          error: `Maximum ${MAX_FILES_PER_ASSIGNMENT} files allowed per assignment`,
         },
-        { status: 415 }
+        { status: 400 }
       );
     }
 
-    // Generate file hash for deduplication
-    const fileBuffer = await file.arrayBuffer();
-    const fileHash = crypto
-      .createHash("sha256")
-      .update(Buffer.from(fileBuffer))
-      .digest("hex");
+    // Validate each file
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
 
-    // Check if file already exists by title and user (simplified check)
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          { error: `File ${i + 1} (${file.name}) exceeds 15MB limit` },
+          { status: 413 }
+        );
+      }
+
+      // Validate file type
+      if (!SUPPORTED_MIME_TYPES.includes(file.type)) {
+        return NextResponse.json(
+          {
+            error: `File ${i + 1} (${
+              file.name
+            }) is not supported. Please use PDF, DOCX, TXT, JPG, or PNG`,
+            supportedTypes: SUPPORTED_MIME_TYPES,
+            receivedType: file.type,
+          },
+          { status: 415 }
+        );
+      }
+    }
+
+    // Check if assignment already exists by title and user
     const existingAssignment = await db
       .select()
       .from(assignments)
@@ -206,28 +259,59 @@ export async function POST(request: NextRequest) {
       await mkdir(uploadDir, { recursive: true });
     }
 
-    // Generate unique filename
-    const fileExtension = file.name.split(".").pop();
-    const uniqueFileName = `${crypto.randomUUID()}.${fileExtension}`;
-    const filePath = join(uploadDir, uniqueFileName);
+    // Process all files: save locally and prepare for Lyzr upload
+    const fileData: Array<{ buffer: Buffer; filename: string }> = [];
+    const localFilePaths: string[] = [];
 
-    // Save file to disk
-    await writeFile(filePath, Buffer.from(fileBuffer));
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-    // Extract text from file
-    let extractedText = "";
+      // Generate unique filename for local storage
+      const fileExtension = file.name.split(".").pop();
+      const uniqueFileName = `${crypto.randomUUID()}.${fileExtension}`;
+      const filePath = join(uploadDir, uniqueFileName);
+
+      // Save file locally
+      await writeFile(filePath, fileBuffer);
+      localFilePaths.push(filePath);
+
+      // Prepare for Lyzr upload
+      fileData.push({
+        buffer: fileBuffer,
+        filename: file.name,
+      });
+    }
+
+    // Upload files to Lyzr assets (fail immediately on first error)
+    let lyzrAssetIds: string[] = [];
     try {
-      console.log(`Starting text extraction for ${file.name} (${file.type})`);
-      extractedText = await extractTextFromFile(file, Buffer.from(fileBuffer));
+      console.log(`Uploading ${files.length} files to Lyzr assets...`);
+      lyzrAssetIds = await lyzrAssetService.uploadBatch(fileData);
       console.log(
-        `Successfully extracted ${extractedText.length} characters from ${file.name}`
+        `Successfully uploaded files to Lyzr. Asset IDs: ${lyzrAssetIds.join(
+          ", "
+        )}`
       );
     } catch (error) {
-      console.error("Text extraction failed:", error);
-      // Continue with empty text rather than failing the upload
-      extractedText = `Text extraction failed for ${file.name}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`;
+      console.error("Lyzr asset upload failed:", error);
+      // Clean up local files on failure
+      for (const filePath of localFilePaths) {
+        try {
+          await import("fs/promises").then((fs) => fs.unlink(filePath));
+        } catch (cleanupError) {
+          console.warn("Failed to cleanup local file:", cleanupError);
+        }
+      }
+
+      return NextResponse.json(
+        {
+          error: "File upload failed",
+          details:
+            "Unable to upload files to AI processing service. Please try again.",
+        },
+        { status: 500 }
+      );
     }
 
     // Create assignment record in database
@@ -236,8 +320,9 @@ export async function POST(request: NextRequest) {
       .values({
         userId: session.user.id,
         title,
-        originalFilename: file.name,
-        extractedText,
+        originalFilename:
+          files.length === 1 ? files[0].name : `${files.length} files`,
+        extractedText: `Uploaded ${files.length} file(s) to Lyzr assets for AI processing`,
         analysisStatus: "pending",
         dueDate: dueDate ? new Date(dueDate) : null,
         courseName: courseName || null,
@@ -250,13 +335,12 @@ export async function POST(request: NextRequest) {
               ? 8
               : 9) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10)
           : null,
+        lyzrAssetIds: lyzrAssetIds,
       })
       .returning();
 
-    // Analysis will be triggered separately in the next step
-    // For now, just mark as ready for analysis
     console.log(
-      `Assignment ${assignment[0].id} uploaded and ready for analysis`
+      `Assignment ${assignment[0].id} uploaded with ${lyzrAssetIds.length} Lyzr asset(s) and ready for analysis`
     );
 
     return NextResponse.json({
@@ -269,9 +353,10 @@ export async function POST(request: NextRequest) {
         uploadTimestamp: assignment[0].uploadTimestamp,
         dueDate: assignment[0].dueDate,
         courseName: assignment[0].courseName,
-        extractedTextLength: extractedText.length,
+        fileCount: files.length,
+        lyzrAssetIds: lyzrAssetIds,
       },
-      message: "Assignment uploaded successfully. Analysis will begin shortly.",
+      message: `Assignment uploaded successfully with ${files.length} file(s). Analysis will begin shortly.`,
     });
   } catch (error) {
     console.error("Assignment upload error:", error);
